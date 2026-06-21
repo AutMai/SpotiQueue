@@ -13,6 +13,7 @@ const authRouter = require('./routes/auth');
 const githubAuthRouter = require('./routes/github-auth');
 const googleAuthRouter = require('./routes/google-auth');
 const prequeueRouter = require('./routes/prequeue');
+const { processExpiredPendingQueues } = require('./routes/queue');
 const { initDatabase } = require('./db');
 const { createSessionMiddleware } = require('./sessionMiddleware');
 
@@ -54,6 +55,12 @@ function adminCorsOrigin(origin, cb) {
 // Initialize database (before session store uses DB)
 initDatabase();
 const sessionMiddleware = createSessionMiddleware();
+
+setInterval(() => {
+  processExpiredPendingQueues().catch(err => {
+    console.error('Pending queue processor error:', err);
+  });
+}, 1000);
 
 // Middleware
 app.use(cors({

@@ -26,6 +26,7 @@ build/
 dist/
 admin/build/
 client/build/
+demo-dist/
 *.tsbuildinfo
 
 # Logs

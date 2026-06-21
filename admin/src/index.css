@@ -62,7 +62,7 @@
   }
   /*
    * App shell uses fixed + --vh (set in index.html + App.jsx from visualViewport).
-   * Avoid 100vh on html/body — it is often taller than the visible area on phones.
+   * Avoid 100vh on html/body; it is often taller than the visible area on phones.
    */
   :root {
     --vh: 100dvh;

@@ -7,8 +7,14 @@ import Display from './components/Display'
 
 const root = ReactDOM.createRoot(document.getElementById('root'))
 
+function isDisplayRoute() {
+  if (typeof window === 'undefined') return false
+  const path = window.location.pathname.replace(/\/$/, '')
+  return path.endsWith('/display')
+}
+
 function Root() {
-  const isDisplay = typeof window !== 'undefined' && window.location.pathname === '/display'
+  const isDisplay = isDisplayRoute()
   return isDisplay ? <Display /> : (
     <ThemeProvider defaultTheme="system" storageKey="spotiqueue-theme">
       <App />

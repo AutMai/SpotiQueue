@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import axios from 'axios'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import axios from '@/lib/api'
 import { Card, CardContent } from './ui/card'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
@@ -15,6 +15,9 @@ function QueueForm({ fingerprintId }) {
   const [messageType, setMessageType] = useState(null)
   const [rateLimitedAdminUrl, setRateLimitedAdminUrl] = useState('')
   const [inputMethod, setInputMethod] = useState('search')
+  const [pendingQueue, setPendingQueue] = useState(null)
+  const [countdown, setCountdown] = useState(0)
+  const confirmCalledRef = useRef(false)
   const [config, setConfig] = useState({
     search_ui_enabled: true,
     url_input_enabled: true,
@@ -35,6 +38,55 @@ function QueueForm({ fingerprintId }) {
     const interval = setInterval(fetchConfig, 10000)
     return () => clearInterval(interval)
   }, [])
+
+  const clearPending = useCallback(() => {
+    setPendingQueue(null)
+    setCountdown(0)
+    confirmCalledRef.current = false
+  }, [])
+
+  const handleConfirmPending = useCallback(async (pendingId) => {
+    if (confirmCalledRef.current) return
+    confirmCalledRef.current = true
+    try {
+      const response = await axios.post(`/api/queue/confirm/${pendingId}`, {
+        fingerprint_id: fingerprintId
+      })
+      setMessage(response.data.message || 'Track queued successfully!')
+      setMessageType('success')
+      setRateLimitedAdminUrl('')
+      clearPending()
+    } catch (error) {
+      const apiError = error.response?.data?.error
+      if (error.response?.status === 410) {
+        setMessage('Queue request was cancelled.')
+        setMessageType('error')
+      } else if (apiError) {
+        setMessage(apiError)
+        setMessageType('error')
+      } else {
+        setMessage('Failed to confirm queue')
+        setMessageType('error')
+      }
+      clearPending()
+    }
+  }, [fingerprintId, clearPending])
+
+  useEffect(() => {
+    if (!pendingQueue) return undefined
+
+    const tick = () => {
+      const remaining = Math.max(0, pendingQueue.execute_at - Math.floor(Date.now() / 1000))
+      setCountdown(remaining)
+      if (remaining <= 0) {
+        handleConfirmPending(pendingQueue.pending_id)
+      }
+    }
+
+    tick()
+    const interval = setInterval(tick, 200)
+    return () => clearInterval(interval)
+  }, [pendingQueue, handleConfirmPending])
 
   const handleQueueError = (error, latestConfig) => {
     const status = error.response?.status
@@ -63,7 +115,7 @@ function QueueForm({ fingerprintId }) {
 
   const handleSearch = async (e) => {
     e.preventDefault()
-    if (!searchQuery.trim()) return
+    if (!searchQuery.trim() || pendingQueue) return
 
     setIsSearching(true)
     setMessage(null)
@@ -79,7 +131,30 @@ function QueueForm({ fingerprintId }) {
     }
   }
 
+  const handleQueueResponse = (response, prequeueEnabled) => {
+    if (response.data.pending) {
+      setPendingQueue({
+        pending_id: response.data.pending_id,
+        execute_at: response.data.execute_at,
+        track: response.data.track,
+        grace_seconds: response.data.grace_seconds || 5
+      })
+      setCountdown(response.data.grace_seconds || Math.max(0, response.data.execute_at - Math.floor(Date.now() / 1000)))
+      setMessage(response.data.message || 'Confirming queue...')
+      setMessageType('success')
+      setSearchResults([])
+      setSearchQuery('')
+      return
+    }
+
+    setMessage(response.data.message || (prequeueEnabled ? 'Track submitted for approval!' : 'Track queued successfully!'))
+    setMessageType('success')
+    setRateLimitedAdminUrl('')
+    setSearchResults([])
+  }
+
   const handleQueueTrack = async (trackId) => {
+    if (pendingQueue) return
     setIsQueueing(true)
     setMessage(null)
     let latestConfig = config
@@ -95,9 +170,7 @@ function QueueForm({ fingerprintId }) {
         fingerprint_id: fingerprintId,
         track_id: trackId
       })
-      setMessage(response.data.message || (prequeueEnabled ? 'Track submitted for approval!' : 'Track queued successfully!'))
-      setMessageType('success')
-      setRateLimitedAdminUrl('')
+      handleQueueResponse(response, prequeueEnabled)
     } catch (error) {
       handleQueueError(error, latestConfig)
     } finally {
@@ -107,7 +180,7 @@ function QueueForm({ fingerprintId }) {
 
   const handleQueueUrl = async (e) => {
     e.preventDefault()
-    if (!urlInput.trim()) return
+    if (!urlInput.trim() || pendingQueue) return
 
     setIsQueueing(true)
     setMessage(null)
@@ -124,9 +197,7 @@ function QueueForm({ fingerprintId }) {
         fingerprint_id: fingerprintId,
         track_url: urlInput
       })
-      setMessage(response.data.message || (prequeueEnabled ? 'Track submitted for approval!' : 'Track queued successfully!'))
-      setMessageType('success')
-      setRateLimitedAdminUrl('')
+      handleQueueResponse(response, prequeueEnabled)
       setUrlInput('')
     } catch (error) {
       handleQueueError(error, latestConfig)
@@ -135,10 +206,58 @@ function QueueForm({ fingerprintId }) {
     }
   }
 
+  const handleCancelPending = async () => {
+    if (!pendingQueue) return
+    try {
+      const response = await axios.post(`/api/queue/cancel/${pendingQueue.pending_id}`, {
+        fingerprint_id: fingerprintId
+      })
+      setMessage(response.data.message || 'Queue request cancelled.')
+      setMessageType('success')
+      clearPending()
+    } catch (error) {
+      setMessage(error.response?.data?.error || 'Failed to cancel queue request')
+      setMessageType('error')
+      if (error.response?.status === 409) {
+        clearPending()
+      }
+    }
+  }
+
+  const inputsDisabled = isSearching || isQueueing || !!pendingQueue
+
   return (
     <Card>
       <CardContent className="pt-6">
-        {message && (
+        {pendingQueue && (
+          <div className="mb-4 rounded-lg border border-primary/30 bg-primary/5 p-4">
+            <div className="flex items-center gap-3 mb-3">
+              {pendingQueue.track?.album_art && (
+                <img
+                  src={pendingQueue.track.album_art}
+                  alt={pendingQueue.track.album || pendingQueue.track.name}
+                  className="w-14 h-14 rounded-lg object-cover shrink-0"
+                />
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="font-medium truncate">{pendingQueue.track?.name}</div>
+                <div className="text-sm text-muted-foreground truncate">{pendingQueue.track?.artists}</div>
+              </div>
+            </div>
+            <p className="text-sm text-muted-foreground mb-3">
+              Adding to queue in <span className="font-semibold text-foreground tabular-nums">{countdown}</span>s
+            </p>
+            <Button
+              variant="destructive"
+              className="w-full min-h-[44px] touch-manipulation"
+              onClick={handleCancelPending}
+            >
+              Cancel
+            </Button>
+          </div>
+        )}
+
+        {message && !pendingQueue && (
           <div className={cn(
             'mb-4 rounded-lg p-3 text-sm',
             messageType === 'error' ? 'bg-destructive/10 text-destructive' : 'bg-primary/10 text-primary'
@@ -165,6 +284,7 @@ function QueueForm({ fingerprintId }) {
               variant={inputMethod === 'search' ? 'default' : 'outline'}
               size="sm"
               onClick={() => setInputMethod('search')}
+              disabled={!!pendingQueue}
               className="min-h-[44px] px-4 touch-manipulation"
             >
               Search
@@ -175,6 +295,7 @@ function QueueForm({ fingerprintId }) {
               variant={inputMethod === 'url' ? 'default' : 'outline'}
               size="sm"
               onClick={() => setInputMethod('url')}
+              disabled={!!pendingQueue}
               className="min-h-[44px] px-4 touch-manipulation"
             >
               Paste URL
@@ -190,11 +311,11 @@ function QueueForm({ fingerprintId }) {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search for a song..."
-                disabled={isSearching || isQueueing}
+                disabled={inputsDisabled}
                 className="flex-1 min-h-[44px] text-base sm:text-sm"
                 autoComplete="off"
               />
-              <Button type="submit" disabled={isSearching || isQueueing || !searchQuery.trim()} className="min-h-[44px] touch-manipulation shrink-0">
+              <Button type="submit" disabled={inputsDisabled || !searchQuery.trim()} className="min-h-[44px] touch-manipulation shrink-0">
                 {isSearching ? 'Searching...' : 'Search'}
               </Button>
             </form>
@@ -205,7 +326,7 @@ function QueueForm({ fingerprintId }) {
                   <div
                     key={track.id}
                     className="flex items-center gap-3 p-3 rounded-lg border hover:bg-accent/50 active:bg-accent/70 cursor-pointer transition-colors touch-manipulation"
-                    onClick={() => handleQueueTrack(track.id)}
+                    onClick={() => !inputsDisabled && handleQueueTrack(track.id)}
                   >
                     {track.album_art && (
                       <img src={track.album_art} alt={track.album} className="w-12 h-12 sm:w-14 sm:h-14 rounded-lg object-cover shrink-0" />
@@ -217,7 +338,7 @@ function QueueForm({ fingerprintId }) {
                       </div>
                       <div className="text-sm text-muted-foreground truncate">{track.artists}</div>
                     </div>
-                    <Button size="sm" onClick={(e) => { e.stopPropagation(); handleQueueTrack(track.id) }} disabled={isQueueing} className="min-h-[40px] min-w-[64px] touch-manipulation shrink-0">
+                    <Button size="sm" onClick={(e) => { e.stopPropagation(); handleQueueTrack(track.id) }} disabled={inputsDisabled} className="min-h-[40px] min-w-[64px] touch-manipulation shrink-0">
                       Queue
                     </Button>
                   </div>
@@ -235,7 +356,7 @@ function QueueForm({ fingerprintId }) {
               value={urlInput}
               onChange={(e) => setUrlInput(e.target.value)}
               placeholder="Paste Spotify track URL"
-              disabled={isQueueing}
+              disabled={inputsDisabled}
               className="min-h-[44px] text-base sm:text-sm"
             />
             <div className="text-xs text-muted-foreground space-y-1">
@@ -243,7 +364,7 @@ function QueueForm({ fingerprintId }) {
               <code className="block break-all">https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC</code>
               <code className="block break-all">spotify:track:4uLU6hMCjMI75M1A2tKUQC</code>
             </div>
-            <Button type="submit" disabled={isQueueing || !urlInput.trim()} className="w-full min-h-[44px] touch-manipulation">
+            <Button type="submit" disabled={inputsDisabled || !urlInput.trim()} className="w-full min-h-[44px] touch-manipulation">
               {isQueueing ? 'Queueing...' : 'Queue Track'}
             </Button>
           </form>

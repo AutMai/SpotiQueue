@@ -9,6 +9,11 @@
     "dev:client": "cd client && npm run dev",
     "dev:admin": "cd admin && npm run dev",
     "build": "cd client && npm run build && cd ../admin && npm run build",
+    "build:demo": "cd client && npm run build:demo && cd ../admin && npm run build:demo && cd .. && node scripts/build-demo.mjs",
+    "build:demo:local": "cd client && npm run build:demo:local && cd ../admin && npm run build:demo:local && cd .. && node scripts/build-demo.mjs",
+    "preview:demo": "node scripts/serve-demo.mjs",
+    "dev:demo:client": "cd client && npm run dev:demo",
+    "dev:demo:admin": "cd admin && npm run dev:demo",
     "start": "node server/index.js",
     "install:all": "npm install && cd client && npm install && cd ../admin && npm install"
   },

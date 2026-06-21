@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react'
-import axios from 'axios'
+import axios from '@/lib/api'
 import { ThemeToggle } from './components/theme-toggle'
 import NowPlaying from './components/NowPlaying'
 import QueueForm from './components/QueueForm'
 import Queue from './components/Queue'
 import { Github, Tv } from 'lucide-react'
 
-axios.defaults.withCredentials = true
+const isDemoMode = import.meta.env.VITE_DEMO_MODE === 'true'
+const displayHref = `${import.meta.env.BASE_URL}display`.replace(/\/+/g, '/').replace(':/', '://')
 
 function App() {
   const [fingerprintId, setFingerprintId] = useState(null)
@@ -183,8 +184,16 @@ function App() {
 
   return (
     <div className="min-h-screen bg-background min-h-[100dvh]">
+      {isDemoMode && (
+        <div className="bg-amber-500/90 text-amber-950 text-center text-xs sm:text-sm py-1.5 px-3">
+          Demo mode: data is stored locally in your browser. Admin password is <strong>demo</strong>.{' '}
+          <a href={`${import.meta.env.BASE_URL}admin/`.replace(/\/+/g, '/').replace(':/', '://')} className="underline font-medium">
+            Open admin panel
+          </a>
+        </div>
+      )}
       <header className="flex justify-between items-center px-4 py-3 gap-2 pt-[max(0.75rem,env(safe-area-inset-top,0px))]">
-        <a href="/display" title="Display mode" className="p-2.5 -ml-1 rounded-lg text-muted-foreground/60 hover:text-muted-foreground hover:bg-accent/50 transition-colors touch-manipulation">
+        <a href={displayHref} title="Display mode" className="hidden sm:inline-flex p-2.5 -ml-1 rounded-lg text-muted-foreground/60 hover:text-muted-foreground hover:bg-accent/50 transition-colors touch-manipulation">
           <Tv className="h-5 w-5" />
         </a>
         <ThemeToggle />

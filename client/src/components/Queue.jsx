@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import axios from 'axios'
+import axios from '@/lib/api'
 import { ThumbsUp, ThumbsDown } from 'lucide-react'
 import { Button } from './ui/button'
 import { cn } from '@/lib/utils'

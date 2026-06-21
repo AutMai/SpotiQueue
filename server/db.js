@@ -62,6 +62,23 @@ function initDatabase() {
   `);
   try { db.exec(`ALTER TABLE votes ADD COLUMN direction INTEGER NOT NULL DEFAULT 1`); } catch (e) { if (!e.message?.includes('duplicate')) console.warn(e.message); }
 
+  // Pending queues (grace period before adding to Spotify)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pending_queues (
+      id TEXT PRIMARY KEY,
+      fingerprint_id TEXT NOT NULL,
+      track_id TEXT NOT NULL,
+      track_name TEXT NOT NULL,
+      artist_name TEXT NOT NULL,
+      album_art TEXT,
+      track_uri TEXT NOT NULL,
+      status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'confirmed', 'cancelled', 'failed')),
+      execute_at INTEGER NOT NULL,
+      created_at INTEGER DEFAULT (strftime('%s', 'now')),
+      FOREIGN KEY (fingerprint_id) REFERENCES fingerprints(id)
+    )
+  `);
+
   // Prequeue (moderation before adding to Spotify)
   db.exec(`
     CREATE TABLE IF NOT EXISTS prequeue (
@@ -119,7 +136,9 @@ function initDatabase() {
     { key: 'require_google_auth', value: 'false' },
     { key: 'prequeue_enabled', value: 'false' },
     { key: 'aura_enabled', value: 'false' },
-    { key: 'queue_url', value: '' }
+    { key: 'queue_url', value: '' },
+    { key: 'queue_grace_period_enabled', value: 'true' },
+    { key: 'queue_grace_period_seconds', value: '5' }
   ];
 
   const stmt = db.prepare('INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)');

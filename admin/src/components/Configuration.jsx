@@ -4,6 +4,8 @@ import { Card, CardContent } from './ui/card'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 
+const isDemoMode = import.meta.env.VITE_DEMO_MODE === 'true'
+
 function ConfigItem({ label, children, saveKey, saveVal, help, config, updateConfig }) {
   return (
     <div className="flex flex-col sm:flex-row sm:items-center gap-4 py-3 border-b last:border-0">
@@ -146,6 +148,23 @@ function Configuration() {
           <ConfigItem
             config={config}
             updateConfig={updateConfig}
+            label={<label className="flex items-center gap-2"><input type="checkbox" checked={config.queue_grace_period_enabled !== 'false'} onChange={(e) => handleChange('queue_grace_period_enabled', e.target.checked ? 'true' : 'false')} /> Enable queue grace period (cancel window)</label>}
+            saveKey="queue_grace_period_enabled"
+            saveVal={config.queue_grace_period_enabled !== 'false' ? 'true' : 'false'}
+            help="When enabled, users can cancel a queue request during the grace period and keep their queue slot."
+          />
+          <ConfigItem
+            config={config}
+            updateConfig={updateConfig}
+            label={<><span className="block font-medium">Queue Grace Period (seconds)</span><p className="text-xs text-muted-foreground mt-1">Wait time before a song is added to Spotify</p></>}
+            saveKey="queue_grace_period_seconds"
+            saveVal={config.queue_grace_period_seconds || '5'}
+          >
+            <Input type="number" value={config.queue_grace_period_seconds || '5'} onChange={(e) => handleChange('queue_grace_period_seconds', e.target.value)} min="0" className="w-full sm:w-24" />
+          </ConfigItem>
+          <ConfigItem
+            config={config}
+            updateConfig={updateConfig}
             label={<label className="flex items-center gap-2"><input type="checkbox" checked={config.rate_limit_redirect_to_admin === 'true'} onChange={(e) => handleChange('rate_limit_redirect_to_admin', e.target.checked ? 'true' : 'false')} /> Show "Go to Admin" option when rate limited</label>}
             saveKey="rate_limit_redirect_to_admin"
             saveVal={config.rate_limit_redirect_to_admin || 'false'}
@@ -235,30 +254,38 @@ function Configuration() {
       <Card>
         <CardContent className="pt-6">
           <h2 className="text-lg font-semibold mb-4">Security</h2>
-          <div className="flex flex-col sm:flex-row sm:items-center gap-4 py-3 border-b">
-            <div className="flex-1 min-w-0">
-              <span className="font-medium">Admin password</span>
-              <p className="text-xs text-muted-foreground mt-1">
-                Stored as a scrypt hash in the database. Enter a new password to replace it.
-                {config.admin_password_configured === false && (
-                  <span className="block mt-1">No custom password saved yet—default is still <code className="text-xs">admin</code> until you set one.</span>
-                )}
-              </p>
-            </div>
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
-              <Input
-                type="password"
-                value={adminPasswordDraft}
-                onChange={(e) => setAdminPasswordDraft(e.target.value)}
-                placeholder="New password"
-                autoComplete="new-password"
-                className="w-full sm:w-48"
-              />
-              <Button size="sm" onClick={saveAdminPassword}>
-                Save
-              </Button>
-            </div>
-          </div>
+          {isDemoMode ? (
+            <p className="text-sm text-muted-foreground py-3">
+              Admin password is fixed to <strong>demo</strong> in this demo. Password and secret settings are not stored or exposed.
+            </p>
+          ) : (
+            <>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-4 py-3 border-b">
+                <div className="flex-1 min-w-0">
+                  <span className="font-medium">Admin password</span>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Stored as a scrypt hash in the database. Enter a new password to replace it.
+                    {config.admin_password_configured === false && (
+                      <span className="block mt-1">No custom password saved yet; default is still <code className="text-xs">admin</code> until you set one.</span>
+                    )}
+                  </p>
+                </div>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+                  <Input
+                    type="password"
+                    value={adminPasswordDraft}
+                    onChange={(e) => setAdminPasswordDraft(e.target.value)}
+                    placeholder="New password"
+                    autoComplete="new-password"
+                    className="w-full sm:w-48"
+                  />
+                  <Button size="sm" onClick={saveAdminPassword}>
+                    Save
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
           <ConfigItem config={config} updateConfig={updateConfig} label="Admin Panel Redirect URL:" saveKey="admin_panel_url" help="Full URL for 'Go to Admin Panel' after Spotify auth.">
             <Input type="text" value={config.admin_panel_url || ''} onChange={(e) => handleChange('admin_panel_url', e.target.value)} placeholder="https://admin.url.com" className="w-full sm:w-64" />
           </ConfigItem>

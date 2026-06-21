@@ -298,6 +298,42 @@ pm2 restart spotify-queue
 sudo systemctl restart spotify-queue
 ```
 
+## GitHub Pages demo
+
+A static demo (guest + admin UI, no backend) deploys automatically on push to `main` via [`.github/workflows/deploy-demo.yml`](.github/workflows/deploy-demo.yml).
+
+**Setup (one-time):** In the GitHub repo, go to Settings → Pages → Build and deployment → Source: **GitHub Actions**.
+
+**URLs after deploy:**
+- Guest app: `https://<username>.github.io/SpotiQueue/`
+- Admin panel: `https://<username>.github.io/SpotiQueue/admin/`
+
+All demo state is stored in the browser (`localStorage`). Admin password is **demo** (no real secrets are stored or exposed).
+
+**Build locally:**
+
+```bash
+npm run install:all
+npm run build:demo
+npm run preview:demo
+# Open http://127.0.0.1:3000/SpotiQueue/  (not the server root; assets use the /SpotiQueue/ base path)
+```
+
+To serve at the site root instead (e.g. `npx serve demo-dist`), use the local base-path build:
+
+```bash
+npm run build:demo:local
+npx serve demo-dist
+# Open http://127.0.0.1:3000/
+```
+
+**Dev with demo mocks:**
+
+```bash
+cd client && npm run dev:demo   # port 3000
+cd admin && npm run dev:demo    # port 3002
+```
+
 ## Troubleshooting
 
 ### App won't start

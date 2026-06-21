@@ -18,6 +18,9 @@
     "dev": "vite",
     "start": "vite",
     "build": "vite build",
+    "build:demo": "vite build --mode demo",
+    "build:demo:local": "vite build --mode demo-local",
+    "dev:demo": "vite --mode demo",
     "preview": "vite preview"
   },
   "devDependencies": {

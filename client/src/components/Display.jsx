@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import axios from 'axios'
+import axios from '@/lib/api'
 import { QRCodeSVG } from 'qrcode.react'
 import { Music, ChevronUp, ChevronDown, WifiOff, GripHorizontal } from 'lucide-react'
 import { useAuraColor } from '../hooks/useAuraColor'

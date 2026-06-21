@@ -33,7 +33,11 @@ function AdminLogin({ totpRequired, onSuccess }) {
       <Card className="mx-auto w-full max-w-md shrink-0 shadow-md">
         <CardContent className="px-4 pt-6 sm:px-6">
           <h1 className="mb-1 text-center text-xl font-semibold">SpotiQueue Admin</h1>
-          <p className="mb-6 text-center text-sm text-muted-foreground">Sign in with your admin password</p>
+          <p className="mb-6 text-center text-sm text-muted-foreground">
+            {import.meta.env.VITE_DEMO_MODE === 'true'
+              ? 'Sign in with password demo'
+              : 'Sign in with your admin password'}
+          </p>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label htmlFor="admin-password" className="mb-1.5 block text-sm font-medium">

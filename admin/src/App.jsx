@@ -20,6 +20,7 @@ function syncViewportHeight() {
 }
 
 function App() {
+  const isDemoMode = import.meta.env.VITE_DEMO_MODE === 'true'
   const [authReady, setAuthReady] = useState(false)
   const [authenticated, setAuthenticated] = useState(false)
   const [totpRequired, setTotpRequired] = useState(false)
@@ -116,10 +117,23 @@ function App() {
         <div className="flex flex-1 items-center justify-center text-muted-foreground">Loading…</div>
       ) : !authenticated ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-y-contain scroll-pb-8 [-webkit-overflow-scrolling:touch]">
+          {isDemoMode && (
+            <div className="bg-amber-500/90 text-amber-950 text-center text-xs sm:text-sm py-1.5 px-3 shrink-0">
+              Demo mode: admin password is <strong>demo</strong>. Data is stored locally in your browser.
+            </div>
+          )}
           <AdminLogin totpRequired={totpRequired} onSuccess={handleLoginSuccess} />
         </div>
       ) : (
         <>
+          {isDemoMode && (
+            <div className="bg-amber-500/90 text-amber-950 text-center text-xs sm:text-sm py-1.5 px-3 shrink-0">
+              Demo mode: guest UI uses browser storage. Admin password is <strong>demo</strong>.{' '}
+              <a href={import.meta.env.BASE_URL.replace(/\/?admin\/?$/, '/')} className="underline font-medium">
+                Open guest app
+              </a>
+            </div>
+          )}
           <header className="flex shrink-0 items-center justify-between gap-2 border-b px-4 py-3 pt-safe pl-safe pr-safe">
             <div className="flex min-w-0 flex-1 items-center gap-2">
               <button

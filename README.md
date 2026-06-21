@@ -271,7 +271,7 @@ The admin panel has six tabs:
 ## Security Notes
 
 - Change the default admin password immediately after first setup; passwords are stored as **scrypt** hashes (`admin_password_hash` in the database). Plaintext `admin_password` rows from older installs are removed automatically the first time someone signs in after upgrading.
-- The admin panel uses a **session cookie** (signed with `SESSION_SECRET`) after you sign in on the login page—use **HTTPS** in production so the cookie can be marked `Secure`
+- The admin panel uses a **session cookie** (signed with `SESSION_SECRET`) after you sign in on the login page. Use **HTTPS** in production so the cookie can be marked `Secure`
 - Optional **TOTP (2FA)**: set `ADMIN_TOTP_SECRET` (base32) or store `admin_totp_secret` in config; when set, the login form asks for an authenticator code
 - Device fingerprinting uses cookies - clearing cookies will reset the fingerprint
 - Rate limiting prevents spam but can be bypassed by clearing cookies (acceptable for event use)
