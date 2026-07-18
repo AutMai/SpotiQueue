@@ -79,6 +79,14 @@ function initDatabase() {
     )
   `);
 
+  // One-at-a-time lock so concurrent confirm paths cannot double-add to Spotify
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pending_queue_locks (
+      pending_id TEXT PRIMARY KEY,
+      locked_at INTEGER NOT NULL
+    )
+  `);
+
   // Prequeue (moderation before adding to Spotify)
   db.exec(`
     CREATE TABLE IF NOT EXISTS prequeue (
@@ -130,7 +138,6 @@ function initDatabase() {
     { key: 'admin_password', value: 'admin' },
     { key: 'require_username', value: 'false' }, // Require username on first visit
     { key: 'voting_enabled', value: 'false' },
-    { key: 'voting_auto_promote', value: 'false' },
     { key: 'voting_downvote_enabled', value: 'true' },
     { key: 'require_github_auth', value: 'false' },
     { key: 'require_google_auth', value: 'false' },

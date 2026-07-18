@@ -15,7 +15,6 @@ router.get('/public', (req, res) => {
     search_ui_enabled: getConfig('search_ui_enabled') !== 'false',
     url_input_enabled: getConfig('url_input_enabled') !== 'false',
     voting_enabled: getConfig('voting_enabled') === 'true',
-    voting_auto_promote: getConfig('voting_auto_promote') === 'true',
     voting_downvote_enabled: getConfig('voting_downvote_enabled') !== 'false',
     aura_enabled: getConfig('aura_enabled') === 'true',
     admin_panel_url: getConfig('admin_panel_url') || '',

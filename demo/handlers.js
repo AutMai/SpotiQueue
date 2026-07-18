@@ -24,6 +24,8 @@ function err(message, status = 400, extra = {}) {
   return { data: { error: message, ...extra }, status }
 }
 
+const demoConfirmLocks = new Set()
+
 function normalizePath(url) {
   let path = (url || '').replace(/^https?:\/\/[^/]+/, '')
   const q = path.indexOf('?')
@@ -97,47 +99,64 @@ function confirmPending(state, pendingId) {
     }
   }
 
-  if (pending.status === 'confirmed') {
+  if (demoConfirmLocks.has(pendingId)) {
+    if (pending.status === 'confirmed') {
+      return ok({
+        success: true,
+        pending: false,
+        message: `Queued: ${pending.track_name} - ${pending.artist_name}`,
+        track: pending.track
+      })
+    }
+    return err('This queue request is already being processed.', 409)
+  }
+
+  demoConfirmLocks.add(pendingId)
+  try {
+    const current = state.pendingQueues[pendingId]
+    if (!current || current.status !== 'pending') {
+      if (current?.status === 'confirmed') {
+        return ok({
+          success: true,
+          pending: false,
+          message: `Queued: ${current.track_name} - ${current.artist_name}`,
+          track: current.track
+        })
+      }
+      return err('This queue request is no longer pending.', 409)
+    }
+
+    const track = current.track
+    state.queue.push({ ...track, votable: true })
+    if (!state.guestQueuedTrackIds.includes(track.id)) {
+      state.guestQueuedTrackIds.push(track.id)
+    }
+
+    state.queueAttempts.push({
+      id: state.nextAttemptId++,
+      fingerprint_id: current.fingerprint_id,
+      track_id: track.id,
+      track_name: track.name,
+      artist_name: track.artists,
+      status: 'success',
+      timestamp: now
+    })
+
+    const fp = state.fingerprints[current.fingerprint_id]
+    if (fp) fp.last_queue_attempt = now
+    applyCooldown(current.fingerprint_id, state)
+    current.status = 'confirmed'
+    saveStore()
+
     return ok({
       success: true,
       pending: false,
-      message: `Queued: ${pending.track_name} - ${pending.artist_name}`,
-      track: pending.track
+      message: `Queued: ${track.name} - ${track.artists}`,
+      track
     })
+  } finally {
+    demoConfirmLocks.delete(pendingId)
   }
-  if (pending.status !== 'pending') {
-    return err('This queue request is no longer pending.', 409)
-  }
-
-  pending.status = 'confirmed'
-
-  const track = pending.track
-  state.queue.push({ ...track, votable: true })
-  if (!state.guestQueuedTrackIds.includes(track.id)) {
-    state.guestQueuedTrackIds.push(track.id)
-  }
-
-  state.queueAttempts.push({
-    id: state.nextAttemptId++,
-    fingerprint_id: pending.fingerprint_id,
-    track_id: track.id,
-    track_name: track.name,
-    artist_name: track.artists,
-    status: 'success',
-    timestamp: now
-  })
-
-  const fp = state.fingerprints[pending.fingerprint_id]
-  if (fp) fp.last_queue_attempt = now
-  applyCooldown(pending.fingerprint_id, state)
-  saveStore()
-
-  return ok({
-    success: true,
-    pending: false,
-    message: `Queued: ${track.name} - ${track.artists}`,
-    track
-  })
 }
 
 function processExpiredPending(state) {
@@ -160,15 +179,6 @@ function buildQueueResponse(state) {
     ...t,
     votable: state.guestQueuedTrackIds.includes(t.id)
   }))
-
-  if (state.config.voting_auto_promote === 'true') {
-    queue = [...queue].sort((a, b) => {
-      if (!a.votable && !b.votable) return 0
-      if (!a.votable) return 1
-      if (!b.votable) return -1
-      return (state.votes[b.id] ?? 0) - (state.votes[a.id] ?? 0)
-    })
-  }
 
   return { queue, currently_playing: playing }
 }
@@ -338,6 +348,30 @@ export function handleDemoRequest(config) {
       pending: false,
       message: `Queued: ${track.name} - ${track.artists}`,
       track
+    })
+  }
+
+  // --- Queue pending status ---
+  const pendingMatch = path.match(/^\/api\/queue\/pending\/([^/]+)$/)
+  if (method === 'get' && pendingMatch) {
+    const pendingId = pendingMatch[1]
+    const fingerprintId = params.fingerprint_id || getFingerprintId()
+    const pending = state.pendingQueues[pendingId]
+    if (!pending) return err('Pending queue not found.', 404)
+    if (pending.fingerprint_id !== fingerprintId) return err('Not allowed to view this queue request.', 403)
+
+    if (pending.status === 'pending' && nowSec() >= pending.execute_at) {
+      confirmPending(state, pendingId)
+    }
+
+    const current = state.pendingQueues[pendingId]
+    return ok({
+      status: current.status,
+      execute_at: current.execute_at,
+      track: current.track,
+      message: current.status === 'confirmed'
+        ? `Queued: ${current.track_name} - ${current.artist_name}`
+        : undefined
     })
   }
 

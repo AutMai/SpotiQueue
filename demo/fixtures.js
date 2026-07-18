@@ -124,7 +124,6 @@ export function createDefaultConfig(baseUrl = '/') {
     rate_limit_custom_message: '',
     require_username: 'false',
     voting_enabled: 'true',
-    voting_auto_promote: 'true',
     voting_downvote_enabled: 'true',
     require_github_auth: 'false',
     require_google_auth: 'false',

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import axios from '@/lib/api'
 import { Card, CardContent } from './ui/card'
 import { Button } from './ui/button'
@@ -17,8 +17,6 @@ function QueueForm({ fingerprintId }) {
   const [inputMethod, setInputMethod] = useState('search')
   const [pendingQueue, setPendingQueue] = useState(null)
   const [countdown, setCountdown] = useState(0)
-  const confirmCalledRef = useRef(false)
-  const confirmingRef = useRef(false)
   const [config, setConfig] = useState({
     search_ui_enabled: true,
     url_input_enabled: true,
@@ -43,67 +41,66 @@ function QueueForm({ fingerprintId }) {
   const clearPending = useCallback(() => {
     setPendingQueue(null)
     setCountdown(0)
-    confirmCalledRef.current = false
-    confirmingRef.current = false
   }, [])
 
-  const handleConfirmPending = useCallback(async (pendingId, attempt = 0) => {
-    if (confirmingRef.current) return
-    confirmingRef.current = true
-
-    try {
-      const response = await axios.post(`/api/queue/confirm/${pendingId}`, {
-        fingerprint_id: fingerprintId
-      })
-      setMessage(response.data.message || 'Track queued successfully!')
-      setMessageType('success')
-      setRateLimitedAdminUrl('')
-      clearPending()
-    } catch (error) {
-      const status = error.response?.status
-      const apiError = error.response?.data?.error
-      const executeAt = error.response?.data?.execute_at
-
-      if (status === 425 && attempt < 15) {
-        confirmingRef.current = false
-        const waitMs = executeAt
-          ? Math.max(200, (executeAt - Date.now() / 1000) * 1000 + 150)
-          : 500
-        setTimeout(() => handleConfirmPending(pendingId, attempt + 1), waitMs)
-        return
-      }
-
-      if (status === 410) {
-        setMessage('Queue request was cancelled.')
-        setMessageType('error')
-      } else if (apiError) {
-        setMessage(apiError)
-        setMessageType('error')
-      } else {
-        setMessage('Failed to confirm queue')
-        setMessageType('error')
-      }
-      clearPending()
-    }
-  }, [fingerprintId, clearPending])
-
   useEffect(() => {
-    if (!pendingQueue) return undefined
+    if (!pendingQueue || !fingerprintId) return undefined
+
+    let cancelled = false
+
+    const pollPendingStatus = async () => {
+      try {
+        const response = await axios.get(`/api/queue/pending/${pendingQueue.pending_id}`, {
+          params: { fingerprint_id: fingerprintId }
+        })
+        if (cancelled) return
+
+        const { status, message: statusMessage } = response.data
+        if (status === 'confirmed') {
+          setMessage(statusMessage || 'Track queued successfully!')
+          setMessageType('success')
+          setRateLimitedAdminUrl('')
+          clearPending()
+        } else if (status === 'cancelled') {
+          setMessage('Queue request was cancelled.')
+          setMessageType('error')
+          clearPending()
+        } else if (status === 'failed') {
+          setMessage('Failed to add track to the queue.')
+          setMessageType('error')
+          clearPending()
+        }
+      } catch (error) {
+        if (cancelled) return
+        const apiError = error.response?.data?.error
+        if (error.response?.status === 404) {
+          setMessage('Queue request expired.')
+          setMessageType('error')
+          clearPending()
+        } else if (apiError) {
+          setMessage(apiError)
+          setMessageType('error')
+          clearPending()
+        }
+      }
+    }
 
     const tick = () => {
       const nowSec = Date.now() / 1000
-      const remaining = Math.max(0, Math.ceil(pendingQueue.execute_at - nowSec))
-      setCountdown(remaining)
-      if (nowSec >= pendingQueue.execute_at && !confirmCalledRef.current) {
-        confirmCalledRef.current = true
-        handleConfirmPending(pendingQueue.pending_id)
-      }
+      setCountdown(Math.max(0, Math.ceil(pendingQueue.execute_at - nowSec)))
     }
 
     tick()
-    const interval = setInterval(tick, 200)
-    return () => clearInterval(interval)
-  }, [pendingQueue, handleConfirmPending])
+    pollPendingStatus()
+    const countdownInterval = setInterval(tick, 200)
+    const pollInterval = setInterval(pollPendingStatus, 500)
+
+    return () => {
+      cancelled = true
+      clearInterval(countdownInterval)
+      clearInterval(pollInterval)
+    }
+  }, [pendingQueue, fingerprintId, clearPending])
 
   const handleQueueError = (error, latestConfig) => {
     const status = error.response?.status

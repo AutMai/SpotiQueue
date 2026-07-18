@@ -28,6 +28,40 @@ function getGracePeriodSeconds() {
   return Math.max(0, parseInt(getConfig('queue_grace_period_seconds') || '5', 10));
 }
 
+const STALE_LOCK_SECONDS = 120;
+const confirmingPendingIds = new Set();
+
+function clearStalePendingLocks(now) {
+  db.prepare('DELETE FROM pending_queue_locks WHERE locked_at < ?').run(now - STALE_LOCK_SECONDS);
+}
+
+function tryAcquirePendingLock(pendingId, now) {
+  clearStalePendingLocks(now);
+  try {
+    db.prepare('INSERT INTO pending_queue_locks (pending_id, locked_at) VALUES (?, ?)').run(pendingId, now);
+    return true;
+  } catch (error) {
+    if (error.code === 'SQLITE_CONSTRAINT_PRIMARYKEY' || error.message?.includes('UNIQUE')) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+function releasePendingLock(pendingId) {
+  db.prepare('DELETE FROM pending_queue_locks WHERE pending_id = ?').run(pendingId);
+}
+
+function pendingTrackPayload(pending) {
+  return {
+    id: pending.track_id,
+    name: pending.track_name,
+    artists: pending.artist_name,
+    album_art: pending.album_art,
+    uri: pending.track_uri
+  };
+}
+
 function applyCooldownAfterSuccess(fingerprintId, fingerprint, now) {
   const cooldownEnabled = getConfig('fingerprinting_enabled') === 'true';
   const cooldownIds = getCooldownFingerprintIds(fingerprint);
@@ -57,7 +91,7 @@ function applyCooldownAfterSuccess(fingerprintId, fingerprint, now) {
 }
 
 async function confirmPendingQueue(pendingId) {
-  const pending = db.prepare('SELECT * FROM pending_queues WHERE id = ?').get(pendingId);
+  let pending = db.prepare('SELECT * FROM pending_queues WHERE id = ?').get(pendingId);
   if (!pending) {
     return { ok: false, status: 404, error: 'Pending queue not found.' };
   }
@@ -66,13 +100,7 @@ async function confirmPendingQueue(pendingId) {
       ok: true,
       alreadyConfirmed: true,
       message: `Queued: ${pending.track_name} - ${pending.artist_name}`,
-      track: {
-        id: pending.track_id,
-        name: pending.track_name,
-        artists: pending.artist_name,
-        album_art: pending.album_art,
-        uri: pending.track_uri
-      }
+      track: pendingTrackPayload(pending)
     };
   }
   if (pending.status === 'cancelled') {
@@ -85,7 +113,6 @@ async function confirmPendingQueue(pendingId) {
   let now = Math.floor(Date.now() / 1000);
   if (now < pending.execute_at) {
     const waitSeconds = pending.execute_at - now;
-    // Client clocks often run slightly ahead of the server; wait briefly instead of failing.
     if (waitSeconds <= 3) {
       await new Promise((resolve) => setTimeout(resolve, waitSeconds * 1000 + 100));
       now = Math.floor(Date.now() / 1000);
@@ -95,38 +122,45 @@ async function confirmPendingQueue(pendingId) {
     }
   }
 
-  const fingerprint = db.prepare('SELECT * FROM fingerprints WHERE id = ?').get(pending.fingerprint_id);
-  if (!fingerprint) {
-    db.prepare('UPDATE pending_queues SET status = ? WHERE id = ?').run('failed', pendingId);
-    return { ok: false, status: 400, error: 'Could not fingerprint your device.' };
-  }
-
-  // Claim this pending row before calling Spotify so client confirm and the
-  // background processor cannot both add the same track.
-  const claim = db.prepare(`
-    UPDATE pending_queues SET status = 'confirmed' WHERE id = ? AND status = 'pending'
-  `).run(pendingId);
-
-  if (claim.changes === 0) {
-    const current = db.prepare('SELECT * FROM pending_queues WHERE id = ?').get(pendingId);
-    if (current?.status === 'confirmed') {
+  if (!tryAcquirePendingLock(pendingId, now)) {
+    pending = db.prepare('SELECT * FROM pending_queues WHERE id = ?').get(pendingId);
+    if (pending?.status === 'confirmed') {
       return {
         ok: true,
         alreadyConfirmed: true,
-        message: `Queued: ${current.track_name} - ${current.artist_name}`,
-        track: {
-          id: current.track_id,
-          name: current.track_name,
-          artists: current.artist_name,
-          album_art: current.album_art,
-          uri: current.track_uri
-        }
+        message: `Queued: ${pending.track_name} - ${pending.artist_name}`,
+        track: pendingTrackPayload(pending)
       };
     }
-    return { ok: false, status: 409, error: 'This queue request is no longer pending.' };
+    return { ok: false, status: 409, error: 'This queue request is already being processed.' };
   }
 
   try {
+    pending = db.prepare('SELECT * FROM pending_queues WHERE id = ?').get(pendingId);
+    if (!pending) {
+      return { ok: false, status: 404, error: 'Pending queue not found.' };
+    }
+    if (pending.status === 'confirmed') {
+      return {
+        ok: true,
+        alreadyConfirmed: true,
+        message: `Queued: ${pending.track_name} - ${pending.artist_name}`,
+        track: pendingTrackPayload(pending)
+      };
+    }
+    if (pending.status === 'cancelled') {
+      return { ok: false, status: 410, error: 'This queue request was cancelled.' };
+    }
+    if (pending.status !== 'pending') {
+      return { ok: false, status: 409, error: 'This queue request is no longer pending.' };
+    }
+
+    const fingerprint = db.prepare('SELECT * FROM fingerprints WHERE id = ?').get(pending.fingerprint_id);
+    if (!fingerprint) {
+      db.prepare('UPDATE pending_queues SET status = ? WHERE id = ?').run('failed', pendingId);
+      return { ok: false, status: 400, error: 'Could not fingerprint your device.' };
+    }
+
     await addToQueue(pending.track_uri);
 
     db.prepare(`
@@ -139,18 +173,13 @@ async function confirmPendingQueue(pendingId) {
     `).run(now, pending.fingerprint_id);
 
     applyCooldownAfterSuccess(pending.fingerprint_id, fingerprint, now);
+    db.prepare('UPDATE pending_queues SET status = ? WHERE id = ?').run('confirmed', pendingId);
     queueCacheExpiry = 0;
 
     return {
       ok: true,
       message: `Queued: ${pending.track_name} - ${pending.artist_name}`,
-      track: {
-        id: pending.track_id,
-        name: pending.track_name,
-        artists: pending.artist_name,
-        album_art: pending.album_art,
-        uri: pending.track_uri
-      }
+      track: pendingTrackPayload(pending)
     };
   } catch (error) {
     console.error('Confirm pending queue error:', error);
@@ -160,6 +189,8 @@ async function confirmPendingQueue(pendingId) {
       VALUES (?, ?, ?, ?, ?)
     `).run(pending.fingerprint_id, pending.track_id, 'error', error.message, now);
     return { ok: false, status: 500, error: error.message || 'Failed to queue track' };
+  } finally {
+    releasePendingLock(pendingId);
   }
 }
 
@@ -171,10 +202,14 @@ async function processExpiredPendingQueues() {
   `).all(now);
 
   for (const row of expired) {
+    if (confirmingPendingIds.has(row.id)) continue;
+    confirmingPendingIds.add(row.id);
     try {
       await confirmPendingQueue(row.id);
     } catch (err) {
       console.error('processExpiredPendingQueues error:', err);
+    } finally {
+      confirmingPendingIds.delete(row.id);
     }
   }
 }
@@ -192,7 +227,6 @@ router.get('/current', async (req, res) => {
     }
 
     const queue = await getQueue();
-    const autoPromote = getConfig('voting_auto_promote') === 'true';
     const guestQueuedIds = new Set(
       db.prepare("SELECT DISTINCT track_id FROM queue_attempts WHERE status = 'success' AND track_id IS NOT NULL").all().map(r => r.track_id)
     );
@@ -202,18 +236,6 @@ router.get('/current', async (req, res) => {
     }
     if (queue?.currently_playing) {
       queue.currently_playing = { ...queue.currently_playing, votable: guestQueuedIds.has(queue.currently_playing.id) };
-    }
-
-    if (autoPromote && queue?.queue?.length > 0) {
-      const voteRows = db.prepare('SELECT track_id, COALESCE(SUM(direction), 0) as net FROM votes GROUP BY track_id').all();
-      const voteMap = {};
-      voteRows.forEach(row => { voteMap[row.track_id] = row.net; });
-      queue.queue = [...queue.queue].sort((a, b) => {
-        if (!a.votable && !b.votable) return 0;
-        if (!a.votable) return 1;
-        if (!b.votable) return -1;
-        return (voteMap[b.id] ?? 0) - (voteMap[a.id] ?? 0);
-      });
     }
 
     queueCache = queue;
@@ -468,6 +490,41 @@ router.post('/add', async (req, res) => {
   }
 });
 
+router.get('/pending/:pendingId', async (req, res) => {
+  const pendingId = req.params.pendingId;
+  const fingerprintId = req.query.fingerprint_id || req.cookies.fingerprint_id;
+
+  if (!fingerprintId) {
+    return res.status(400).json({ error: 'Could not fingerprint your device.' });
+  }
+
+  let pending = db.prepare('SELECT * FROM pending_queues WHERE id = ?').get(pendingId);
+  if (!pending) {
+    return res.status(404).json({ error: 'Pending queue not found.' });
+  }
+  if (pending.fingerprint_id !== fingerprintId) {
+    return res.status(403).json({ error: 'Not allowed to view this queue request.' });
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  if (pending.status === 'pending' && now >= pending.execute_at) {
+    await confirmPendingQueue(pendingId);
+    pending = db.prepare('SELECT * FROM pending_queues WHERE id = ?').get(pendingId);
+  }
+
+  const track = pendingTrackPayload(pending);
+  const message = pending.status === 'confirmed'
+    ? `Queued: ${pending.track_name} - ${pending.artist_name}`
+    : undefined;
+
+  res.json({
+    status: pending.status,
+    execute_at: pending.execute_at,
+    track,
+    message
+  });
+});
+
 router.post('/cancel/:pendingId', (req, res) => {
   const pendingId = req.params.pendingId;
   const fingerprintId = req.body.fingerprint_id || req.cookies.fingerprint_id;
@@ -572,7 +629,6 @@ router.post('/vote', (req, res) => {
       if (existing.direction === direction) {
         db.prepare('DELETE FROM votes WHERE track_id = ? AND fingerprint_id = ?').run(track_id, fingerprintId);
         const net = db.prepare('SELECT COALESCE(SUM(direction), 0) as net FROM votes WHERE track_id = ?').get(track_id);
-        if (getConfig('voting_auto_promote') === 'true') queueCacheExpiry = 0;
         return res.json({ userVote: null, votes: net?.net ?? 0 });
       }
       db.prepare('UPDATE votes SET direction = ? WHERE track_id = ? AND fingerprint_id = ?').run(direction, track_id, fingerprintId);
@@ -581,7 +637,6 @@ router.post('/vote', (req, res) => {
       db.prepare('INSERT INTO votes (track_id, fingerprint_id, direction, created_at) VALUES (?, ?, ?, ?)').run(track_id, fingerprintId, direction, voteNow);
     }
     const net = db.prepare('SELECT COALESCE(SUM(direction), 0) as net FROM votes WHERE track_id = ?').get(track_id);
-    if (getConfig('voting_auto_promote') === 'true') queueCacheExpiry = 0;
     res.json({ userVote: direction, votes: net?.net ?? 0 });
   } catch (error) {
     console.error('Vote error:', error);

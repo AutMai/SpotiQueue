@@ -79,7 +79,6 @@ export function getPublicConfig(state) {
     search_ui_enabled: c.search_ui_enabled !== 'false',
     url_input_enabled: c.url_input_enabled !== 'false',
     voting_enabled: c.voting_enabled === 'true',
-    voting_auto_promote: c.voting_auto_promote === 'true',
     voting_downvote_enabled: c.voting_downvote_enabled !== 'false',
     aura_enabled: c.aura_enabled === 'true',
     admin_panel_url: c.admin_panel_url || '',
