@@ -82,9 +82,17 @@ async function confirmPendingQueue(pendingId) {
     return { ok: false, status: 409, error: 'This queue request is no longer pending.' };
   }
 
-  const now = Math.floor(Date.now() / 1000);
+  let now = Math.floor(Date.now() / 1000);
   if (now < pending.execute_at) {
-    return { ok: false, status: 425, error: 'Grace period has not finished yet.', execute_at: pending.execute_at };
+    const waitSeconds = pending.execute_at - now;
+    // Client clocks often run slightly ahead of the server; wait briefly instead of failing.
+    if (waitSeconds <= 3) {
+      await new Promise((resolve) => setTimeout(resolve, waitSeconds * 1000 + 100));
+      now = Math.floor(Date.now() / 1000);
+    }
+    if (now < pending.execute_at) {
+      return { ok: false, status: 425, error: 'Grace period has not finished yet.', execute_at: pending.execute_at };
+    }
   }
 
   const fingerprint = db.prepare('SELECT * FROM fingerprints WHERE id = ?').get(pending.fingerprint_id);

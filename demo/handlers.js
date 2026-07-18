@@ -92,7 +92,9 @@ function confirmPending(state, pendingId) {
 
   const now = nowSec()
   if (now < pending.execute_at) {
-    return err('Grace period has not finished yet.', 425, { execute_at: pending.execute_at })
+    if (pending.execute_at - now > 3) {
+      return err('Grace period has not finished yet.', 425, { execute_at: pending.execute_at })
+    }
   }
 
   const track = pending.track
