@@ -101,6 +101,31 @@ async function confirmPendingQueue(pendingId) {
     return { ok: false, status: 400, error: 'Could not fingerprint your device.' };
   }
 
+  // Claim this pending row before calling Spotify so client confirm and the
+  // background processor cannot both add the same track.
+  const claim = db.prepare(`
+    UPDATE pending_queues SET status = 'confirmed' WHERE id = ? AND status = 'pending'
+  `).run(pendingId);
+
+  if (claim.changes === 0) {
+    const current = db.prepare('SELECT * FROM pending_queues WHERE id = ?').get(pendingId);
+    if (current?.status === 'confirmed') {
+      return {
+        ok: true,
+        alreadyConfirmed: true,
+        message: `Queued: ${current.track_name} - ${current.artist_name}`,
+        track: {
+          id: current.track_id,
+          name: current.track_name,
+          artists: current.artist_name,
+          album_art: current.album_art,
+          uri: current.track_uri
+        }
+      };
+    }
+    return { ok: false, status: 409, error: 'This queue request is no longer pending.' };
+  }
+
   try {
     await addToQueue(pending.track_uri);
 
@@ -114,7 +139,6 @@ async function confirmPendingQueue(pendingId) {
     `).run(now, pending.fingerprint_id);
 
     applyCooldownAfterSuccess(pending.fingerprint_id, fingerprint, now);
-    db.prepare('UPDATE pending_queues SET status = ? WHERE id = ?').run('confirmed', pendingId);
     queueCacheExpiry = 0;
 
     return {

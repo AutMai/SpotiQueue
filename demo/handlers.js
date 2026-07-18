@@ -97,6 +97,20 @@ function confirmPending(state, pendingId) {
     }
   }
 
+  if (pending.status === 'confirmed') {
+    return ok({
+      success: true,
+      pending: false,
+      message: `Queued: ${pending.track_name} - ${pending.artist_name}`,
+      track: pending.track
+    })
+  }
+  if (pending.status !== 'pending') {
+    return err('This queue request is no longer pending.', 409)
+  }
+
+  pending.status = 'confirmed'
+
   const track = pending.track
   state.queue.push({ ...track, votable: true })
   if (!state.guestQueuedTrackIds.includes(track.id)) {
@@ -116,7 +130,6 @@ function confirmPending(state, pendingId) {
   const fp = state.fingerprints[pending.fingerprint_id]
   if (fp) fp.last_queue_attempt = now
   applyCooldown(pending.fingerprint_id, state)
-  pending.status = 'confirmed'
   saveStore()
 
   return ok({
