@@ -4,6 +4,10 @@
 
 A self-hosted web application that lets guests queue Spotify tracks to your Spotify account during events, with anti-spam controls, live "Now Playing" display, and a comprehensive admin interface.
 
+## Notice:
+This version of the software is now unsupported and will be receiving few, if any, updates.
+To create a free account on the new, remade version, visit https://spotiqueue.com
+
 ## Demo:
 A page demonstrating the UI can be found here:   
 https://stroepwafel.github.io/SpotiQueue/
