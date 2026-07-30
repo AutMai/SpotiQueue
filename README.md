@@ -17,10 +17,13 @@ Artificial Intelligence (AI) assisted in commenting and cleaning the code and in
 ## Features
 
 - **Public Guest Interface**: Clean, mobile-friendly UI for queueing songs (Vite + Tailwind, dark mode)
+- **Rotating Rooms**: Guests join through a room code in the QR link. One click regenerates the room, killing the old link instantly
+- **Synced Lyrics Check**: Flags (or blocks) tracks that have no synced lyrics, so nothing reaches the beamer with an empty screen
 - **Spotify Search**: Search and queue tracks directly
 - **URL Input**: Paste Spotify track URLs
 - **Live Now Playing**: Auto-updating display with progress bar, play/pause badge, synced lyrics
 - **Display Mode** (`/display`): Full-screen party view with now playing, synced lyrics, up-next queue, voting, QR code to queue
+- **Karaoke Mode** (`/karaoke`): Lyrics-first big screen — large scaling type for singing along, with now playing, queue and QR demoted to a side rail
 - **Song Voting**: Optional up/down voting on queued tracks (admin-configurable)
 - **Prequeue**: Optional approval flow before adding tracks to Spotify (admin-configurable)
 - **Guest Auth**: Optional GitHub OAuth and/or Google OAuth for queue and voting
@@ -203,6 +206,138 @@ This will start:
 **Development ports**: Public UI 3000, Admin UI 3002, Public API 5000, Admin API 3001  
 **Production**: Public API + static client on 3000, Admin API + static admin on 3001.
 
+## Rooms (rotating QR codes)
+
+Guests can only queue through the **current room**. The room code lives in the QR
+link (`https://your-queue.com/?room=AB3XK9QP`), and the server hands the guest a
+cookie so refreshing the page keeps working.
+
+If a group starts abusing the queue, open **admin → QR Code → Create new room**:
+
+- A new code and QR are generated; the old link stops working immediately
+- Everyone (including the trolls) must rescan to queue again
+- The **pending approval list is cleared**, so you don't have to reject a flood of
+  requests one by one
+- Votes and cooldowns are cleared too, so honest guests who just rescanned aren't
+  stuck waiting out a timer from the old room
+- Songs **already sent to Spotify keep playing** — the Spotify Web API provides no
+  way to remove tracks from the playback queue
+
+Show the QR from the **Display mode** (`/display`) screen or hand it out with the
+**Download QR** / **Shareable image** buttons. The Display screen picks up a new
+room on its next poll, so the projected QR updates on its own.
+
+Exactly one room is active at a time. To turn the whole mechanism off and go back
+to an open queue, uncheck **Configuration → Rooms → Require a room code**.
+
+## Synced lyrics
+
+Tracks are checked for synced (LRC) lyrics, so a song that would leave the beamer
+blank is visible before it gets queued:
+
+- Search results show a **Synced lyrics** / **No lyrics available** badge
+- The prequeue list shows a **No synced lyrics** warning so you can decline at a glance
+- **Configuration → Content Filtering → Require Synced Lyrics** blocks such tracks outright
+- Display mode shows which provider the lyrics came from (`Lyrics via netease`)
+
+### Karaoke mode (`/karaoke`)
+
+A second big screen aimed at people actually singing, rather than at ambience.
+Lyrics take the full stage (roughly 4× the type size of the `/display` lyrics
+pane, scaling with the viewport). Now playing, up-next and the QR code sit in a
+narrow side rail.
+
+Two deliberate choices keep it readable while singing:
+
+- **Every line is the same size and weight.** The active line is picked out by
+  colour and a small composited scale only. Enlarging the active line re-wraps
+  it mid-song, which shifts every following word and wrecks the reading flow.
+- **The list slides rather than jumps.** The whole column is animated so the
+  active line stays centred, which is far easier to follow than lines snapping
+  between positions.
+
+Use `/display` for background/party ambience and `/karaoke` when someone is at the
+mic. Both are linked from the guest page header and share the same sync settings.
+
+### Sync calibration
+
+Lyrics are aligned using Spotify's reported playback position, extrapolated
+between polls — nothing analyses the audio. Because every venue's audio path
+adds its own delay, the alignment is adjustable:
+
+**Configuration → Display Mode → Lyric Sync Offset (ms)** (default `-220`)
+
+- Negative shows lyrics **earlier**, positive **later**
+- If lyrics run behind the music, go more negative
+- **Bluetooth speakers add 100–300ms of their own latency** — try `-400` to `-600`
+- Changes apply to both big screens within ~10 seconds, no reload needed
+
+Calibrate on the day, against the actual PA.
+
+Between polls the position is tracked on a local clock that is *corrected* toward
+Spotify rather than reset by it — a real seek or track change snaps, but ordinary
+drift is absorbed gradually, so the lyric line no longer twitches every 3 seconds.
+
+### Pre-caching before an event
+
+**Configuration → Lyrics → Pre-cache lyrics from a playlist**
+
+Paste a Spotify **playlist or album** link and every track is looked up ahead of
+time and stored locally. Run it the day before and the night itself needs no
+lyrics provider at all. Progress is shown as it runs; lookups are throttled, so
+a large playlist takes a few minutes.
+
+> Spotify blocks third-party API access to its *own* editorial and personalised
+> playlists (Discover Weekly, Today's Top Hits, …). Use one of your own playlists,
+> or an album link.
+
+Lyrics are stored in the `lyrics_cache` table, so they also survive a restart —
+a crash mid-event costs nothing.
+
+### Providers
+
+Set the order in **Configuration → Lyrics → Lyrics Providers** (default `lrclib,netease`).
+The first provider that returns synced lyrics wins; set a single name to compare
+quality between them.
+
+| Provider | Notes |
+|---|---|
+| `lrclib` | [lrclib.net](https://lrclib.net). Open, no auth. Point at a self-hosted instance with `LRCLIB_BASE_URL` |
+| `netease` | NetEase Cloud Music. Unofficial/undocumented API, good western pop coverage, weaker on some non-English catalogues |
+
+### Reliability behaviour
+
+- **Duration matching**: candidates must be within 5s of the Spotify track's length.
+  A radio edit's timings on an album version desyncs every line, so a mismatch is
+  reported as "no lyrics" rather than shown wrong.
+- **Fail open**: if every provider is unreachable, tracks are allowed through and
+  nothing is cached. An outage must never become a queue that rejects everything.
+- **Circuit breaker**: a provider that fails 3 times in a row is skipped for 5
+  minutes, so a dead provider doesn't add its timeout to every lookup.
+- **Throttling**: requests are serialised ~350ms apart with a 60s backoff on HTTP 429,
+  because these are free community services.
+- Results **and the lyrics themselves** are cached in the database, so repeat
+  requests cost nothing and a restart does not re-fetch the night's catalogue.
+
+### Self-hosting lrclib (optional)
+
+Removes the dependency on the public instance — worth it if the venue has poor
+connectivity:
+
+```bash
+git clone https://github.com/tranxuanthang/lrclib && cd lrclib
+docker build -t lrclib:latest -f Dockerfile .
+# Download the SQLite dump from https://lrclib.net/db-dumps, decompress it to
+# db.sqlite3, and place it in the folder you mount at /data
+docker run -d --name lrclib -p 3300:3300 \
+  -v /path/to/lrclib-data:/data \
+  -e LRCLIB_LOG=info -e LRCLIB_MMAP_SIZE=4000000000 \
+  lrclib:latest
+```
+
+Then set `LRCLIB_BASE_URL=http://localhost:3300` in `.env`. Note `LRCLIB_MMAP_SIZE`
+defaults to 30GB upstream — keep it below 75% of your RAM.
+
 ## Optional: Guest Authentication (GitHub & Google OAuth)
 
 You can require guests to sign in with GitHub or Google before queueing or voting. Configure in admin → Configuration → Guest Authentication.
@@ -225,19 +360,22 @@ All configuration can be managed through the admin panel:
 - Development: http://localhost:3002
 - Production: http://localhost:3001
 
-The admin panel has six tabs:
+The admin panel has seven tabs:
 
 1. **Spotify**: Connect or reconnect your Spotify account (no restart needed)
+1b. **QR Code**: Show the current room code and QR, download it as an image, or create a new room
 2. **Prequeue**: Approve or decline track requests when prequeue is enabled
 3. **Devices**: View and manage device fingerprints, block/unblock devices, reset cooldowns
 4. **Banned Tracks**: Manage list of banned tracks
 5. **Configuration**: Adjust settings:
-   - Queue Management: Enable queueing, prequeue (approval required)
+   - Queue Management: Enable queueing, prequeue (approval required), max pending requests per guest
+   - Rooms: Require a room code (rotating QR)
    - Rate Limiting: Cooldown duration, songs before cooldown
    - Song Voting: Enable/disable voting on queued tracks
-   - Display Mode: Enable album aura on `/display`
+   - Display Mode: Album aura, lyric sync offset
    - Input Methods: Enable/disable search UI and URL input
-   - Content Filtering: Ban explicit songs
+   - Content Filtering: Ban explicit songs, require synced lyrics
+   - Lyrics: Provider order (lrclib / netease), pre-cache from a playlist
    - Guest Auth: Require GitHub or Google sign-in
    - Admin Password: Change admin panel password
    - Reset All Data: Clear all devices, stats, and banned tracks (keeps configuration)
@@ -252,7 +390,7 @@ The admin panel has six tabs:
 3. Search for a song or paste a Spotify track URL
 4. Click "Queue" to add it (or submit for approval if prequeue is enabled)
 5. Wait for the cooldown period before queueing another song
-6. Use **Display mode** (`/display`) for a full-screen party view with now playing, lyrics, and QR code
+6. Use **Display mode** (`/display`) for a full-screen party view with now playing, lyrics, and QR code, or **Karaoke mode** (`/karaoke`) for large sing-along lyrics
 
 ### For Admins
 
@@ -290,6 +428,30 @@ The admin panel has six tabs:
 
 - Make sure Spotify is open and playing on at least one device
 - The device must be active (not paused for too long)
+
+### Screens show "Nothing playing" / "Spotify is rate-limiting this app"
+
+Spotify returns **HTTP 429 `QUOTA_EXCEEDED`** when the app exceeds its API quota.
+Check it directly:
+
+```bash
+node -e "require('dotenv').config(); const a=require('axios'); const {getAccessToken}=require('./server/utils/spotify');
+(async()=>{const t=await getAccessToken(); const r=await a.get('https://api.spotify.com/v1/me/player/currently-playing',{headers:{Authorization:'Bearer '+t},validateStatus:()=>true});
+console.log(r.status, r.headers['retry-after'] ? 'retry after '+r.headers['retry-after']+'s' : '');})()"
+```
+
+A `Retry-After` of a few seconds is a normal burst limit and clears itself. A value
+of **hours** means the app's quota is exhausted — apps in Spotify's default
+**Development Mode** have a limited quota, and nothing but time restores it.
+
+To reduce consumption:
+
+- The server caches now-playing and shares one upstream call between every screen,
+  so extra displays are free. Keep it that way — don't bypass `/api/now-playing`.
+- Avoid leaving many `/display` or `/karaoke` tabs open on machines you're not using.
+- **Pre-cache lyrics before the event** (Configuration → Lyrics) so the night itself
+  spends its quota only on playback state.
+- For heavy use, apply for **Extended Quota Mode** in the Spotify developer dashboard.
 
 ### "Failed to authenticate with Spotify"
 

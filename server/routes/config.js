@@ -2,6 +2,7 @@ const express = require('express');
 const { getConfig, setConfig, getAllConfig } = require('../utils/config');
 const { requireAdminSession } = require('../middleware/adminSession');
 const { setAdminPasswordFromPlain, sanitizeConfigForClient } = require('../utils/adminPassword');
+const { roomsEnabled, getActiveRoom, buildRoomUrl } = require('../utils/rooms');
 
 const router = express.Router();
 
@@ -9,8 +10,19 @@ const SENSITIVE_KEYS = new Set(['admin_password', 'admin_password_hash']);
 
 // Public config (no auth) - for client to know prequeue, voting, aura, etc.
 router.get('/public', (req, res) => {
-  const queueUrl = getConfig('queue_url') || process.env.CLIENT_URL || '';
+  const baseQueueUrl = getConfig('queue_url') || process.env.CLIENT_URL || '';
+  // Display mode renders this as a QR, so pointing it at the active room means the
+  // big screen picks up a rotation on its next poll. room_code is sent separately
+  // because Display falls back to its own origin when no queue URL is configured -
+  // it has to be able to attach the room itself, or the projected QR would send
+  // guests to a roomless link they cannot join through.
+  const activeRoom = roomsEnabled() ? getActiveRoom() : null;
+  const queueUrl = activeRoom && baseQueueUrl ? buildRoomUrl(activeRoom.code, baseQueueUrl) : baseQueueUrl;
   res.json({
+    rooms_enabled: roomsEnabled(),
+    room_code: activeRoom ? activeRoom.code : null,
+    require_synced_lyrics: getConfig('require_synced_lyrics') === 'true',
+    lyric_sync_offset_ms: parseInt(getConfig('lyric_sync_offset_ms') || '-220', 10) || 0,
     prequeue_enabled: getConfig('prequeue_enabled') === 'true',
     search_ui_enabled: getConfig('search_ui_enabled') !== 'false',
     url_input_enabled: getConfig('url_input_enabled') !== 'false',

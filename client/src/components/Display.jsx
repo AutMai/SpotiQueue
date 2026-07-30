@@ -1,38 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import axios from '@/lib/api'
 import { QRCodeSVG } from 'qrcode.react'
 import { Music, ChevronUp, ChevronDown, WifiOff, GripHorizontal } from 'lucide-react'
 import { useAuraColor } from '../hooks/useAuraColor'
+import { usePlayback, formatDuration } from '../hooks/usePlayback'
 import { cn } from '@/lib/utils'
 
 const QR_SIZE_KEY = 'spotiqueue-display-qr-size'
 const MIN_QR = 15
 const MAX_QR = 50
-
-const POLL_NOW_PLAYING_MS = 3000
-const POLL_QUEUE_MS = 8000
-const POLL_VOTES_MS = 10000
-/** Spotify progress_ms + client extrapolation often lags real audio; nudge lyric line earlier (ms). */
-const LYRIC_SYNC_OFFSET_MS = -220
-
-function computeLyricLineIndex(lines, currentMs) {
-  if (!lines?.length) return 0
-  const t = Math.max(0, currentMs)
-  let idx = 0
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const lineStartMs = lines[i].startTimeMs ?? 0
-    if (t >= lineStartMs) {
-      idx = i
-      break
-    }
-  }
-  return idx
-}
-
-function formatDuration(ms) {
-  if (!ms || !Number.isFinite(ms)) return '0:00'
-  return `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, '0')}`
-}
 
 function ProgressBar({ progress, auraColor }) {
   return (
@@ -103,22 +78,21 @@ function AlbumArt({ src, alt, size = 'lg', auraColor }) {
 }
 
 export default function Display() {
-  const [nowPlaying, setNowPlaying] = useState(null)
-  const [upNext, setUpNext] = useState([])
-  const [votes, setVotes] = useState({})
-  const [connected, setConnected] = useState(true)
-  const [progress, setProgress] = useState(0)
-  const [initialized, setInitialized] = useState(false)
-  const [votingEnabled, setVotingEnabled] = useState(false)
-  const [auraEnabled, setAuraEnabled] = useState(false)
-  const [queueUrl, setQueueUrl] = useState('')
-  const [currentLyricIndex, setCurrentLyricIndex] = useState(0)
-  const [cachedLyrics, setCachedLyrics] = useState(null)
-  const [finishedTrackId, setFinishedTrackId] = useState(null)
+  const {
+    nowPlaying,
+    upNext,
+    votes,
+    connected,
+    progress,
+    initialized,
+    votingEnabled,
+    auraEnabled,
+    currentLyricIndex,
+    rateLimited,
+    appUrl,
+    getPlaybackMs
+  } = usePlayback()
 
-  const nowPlayingRef = useRef(null)
-  const lastFetchedAtRef = useRef(null)
-  const progressTimerRef = useRef(null)
   const displayRightRef = useRef(null)
 
   const [qrSize, setQrSize] = useState(() => {
@@ -166,174 +140,7 @@ export default function Display() {
     window.addEventListener('pointercancel', onUp)
   }, [])
 
-  const appUrl = queueUrl || (typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.host}` : '')
-
   const auraColor = useAuraColor(auraEnabled ? nowPlaying?.album_art : null)
-
-  /** Extrapolated playback position (ms). Does not advance while paused. */
-  function getPlaybackMs() {
-    const track = nowPlayingRef.current
-    if (!track) return 0
-    const base = track.progress_ms ?? 0
-    if (!track.is_playing) return base
-    const fetchedAt = lastFetchedAtRef.current
-    if (fetchedAt == null) return base
-    return base + (Date.now() - fetchedAt)
-  }
-
-  // Poll now playing
-  useEffect(() => {
-    let cancelled = false
-    let failCount = 0
-
-    const fetchNowPlaying = async () => {
-      if (cancelled) return
-      try {
-        const res = await axios.get('/api/now-playing', { timeout: 5000 })
-        if (cancelled) return
-        const track = res.data?.track ?? null
-
-        if (track?.id && nowPlayingRef.current?.id && track.id !== nowPlayingRef.current.id) {
-          setFinishedTrackId(nowPlayingRef.current.id)
-        }
-
-        if (track?.id !== nowPlayingRef.current?.id) {
-          setCachedLyrics(null)
-        }
-
-        if (track && track.lyrics) {
-          setCachedLyrics(track.lyrics)
-          track.lyrics = track.lyrics
-        } else if (track && cachedLyrics) {
-          track.lyrics = cachedLyrics
-        }
-
-        setNowPlaying(track)
-        nowPlayingRef.current = track
-        lastFetchedAtRef.current = Date.now()
-        setConnected(true)
-        failCount = 0
-        if (track?.progress_ms != null && track?.duration_ms) {
-          setProgress((track.progress_ms / track.duration_ms) * 100)
-        }
-        setInitialized(true)
-      } catch {
-        failCount++
-        if (failCount >= 3) setConnected(false)
-        setInitialized(true)
-      }
-    }
-
-    fetchNowPlaying()
-    const interval = setInterval(fetchNowPlaying, POLL_NOW_PLAYING_MS)
-    return () => { cancelled = true; clearInterval(interval) }
-  }, [cachedLyrics])
-
-  // Progress bar + lyric line: tick every 100ms while playing (500ms was too coarse for sync)
-  useEffect(() => {
-    if (progressTimerRef.current) clearInterval(progressTimerRef.current)
-    if (!nowPlayingRef.current?.is_playing) return
-
-    const tick = () => {
-      const track = nowPlayingRef.current
-      const fetchedAt = lastFetchedAtRef.current
-      if (!track?.duration_ms || !fetchedAt) return
-      const currentMs = getPlaybackMs()
-      const newProgress = Math.min((currentMs / track.duration_ms) * 100, 100)
-      setProgress(newProgress)
-      const lines = track.lyrics?.lines
-      if (lines?.length) {
-        setCurrentLyricIndex(computeLyricLineIndex(lines, currentMs + LYRIC_SYNC_OFFSET_MS))
-      }
-    }
-    tick()
-    progressTimerRef.current = setInterval(tick, 100)
-
-    return () => clearInterval(progressTimerRef.current)
-  }, [nowPlaying])
-
-  // When paused (or lyrics arrive while paused), align lyric line without extrapolation
-  useEffect(() => {
-    const track = nowPlayingRef.current
-    if (!track?.lyrics?.lines?.length) return
-    if (track.is_playing) return
-    const currentMs = track.progress_ms ?? 0
-    setCurrentLyricIndex(computeLyricLineIndex(track.lyrics.lines, currentMs + LYRIC_SYNC_OFFSET_MS))
-  }, [nowPlaying?.id, nowPlaying?.is_playing, nowPlaying?.lyrics])
-
-  useEffect(() => {
-    let cancelled = false
-
-    const fetchQueue = async () => {
-      if (cancelled) return
-      try {
-        const res = await axios.get('/api/queue/current', { timeout: 8000 })
-        if (cancelled) return
-        const queue = res.data?.queue?.slice(0, 20) ?? []
-        setUpNext(queue)
-      } catch {
-        // keep showing last known queue
-      }
-    }
-
-    fetchQueue()
-    const interval = setInterval(fetchQueue, POLL_QUEUE_MS)
-    return () => { cancelled = true; clearInterval(interval) }
-  }, [])
-
-  // Optimistic: remove first from queue when track changes
-  useEffect(() => {
-    if (finishedTrackId) {
-      setUpNext((prev) => prev.slice(1))
-    }
-  }, [finishedTrackId])
-
-  // Poll public config for voting_enabled and aura_enabled
-  useEffect(() => {
-    let cancelled = false
-
-    const fetchConfig = async () => {
-      if (cancelled) return
-      try {
-        const res = await axios.get('/api/config/public', { timeout: 5000 })
-        if (cancelled) return
-        setVotingEnabled(res.data?.voting_enabled ?? false)
-        setAuraEnabled(res.data?.aura_enabled ?? false)
-        setQueueUrl(res.data?.queue_url || '')
-      } catch {
-        if (!cancelled) setVotingEnabled(false)
-      }
-    }
-
-    fetchConfig()
-    const interval = setInterval(fetchConfig, 10000)
-    return () => { cancelled = true; clearInterval(interval) }
-  }, [])
-
-  useEffect(() => {
-    if (!votingEnabled) setVotes({})
-  }, [votingEnabled])
-
-  // Poll votes when voting enabled
-  useEffect(() => {
-    if (!votingEnabled) return
-    let cancelled = false
-
-    const fetchVotes = async () => {
-      if (cancelled) return
-      try {
-        const res = await axios.get('/api/queue/votes', { timeout: 5000 })
-        if (cancelled) return
-        setVotes(res.data?.votes ?? {})
-      } catch {
-        // non-critical
-      }
-    }
-
-    fetchVotes()
-    const interval = setInterval(fetchVotes, POLL_VOTES_MS)
-    return () => { cancelled = true; clearInterval(interval) }
-  }, [votingEnabled])
 
   return (
     <div className="fixed inset-0 bg-gray-950 text-white flex flex-col overflow-hidden select-none">
@@ -362,7 +169,9 @@ export default function Display() {
               <div className="w-[min(18rem,min(85vw,38vh))] h-[min(18rem,min(85vw,38vh))] max-h-[min(40vh,20rem)] rounded-2xl bg-white/5 flex items-center justify-center aspect-square">
                 <Music className="h-[min(4rem,10vmin)] w-[min(4rem,10vmin)]" />
               </div>
-              <p className="text-[clamp(0.9375rem,1.5vw+0.5rem,1.125rem)]">Nothing playing</p>
+              <p className="text-[clamp(0.9375rem,1.5vw+0.5rem,1.125rem)]">
+                {rateLimited ? 'Spotify is rate-limiting this app' : 'Nothing playing'}
+              </p>
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center w-full max-w-lg min-w-0 flex-1 min-h-0 gap-4 overflow-x-hidden px-1 py-2">
@@ -395,7 +204,14 @@ export default function Display() {
 
                   {nowPlaying.lyrics?.lines && (
                     <div className="mt-4 pt-4 border-t border-white/10 flex w-full min-w-0 max-w-full flex-col overflow-hidden max-h-[min(10rem,min(24vh,32dvh))]">
-                      <p className="text-xs font-semibold uppercase tracking-widest text-white/40 mb-2 shrink-0 text-center">Lyrics</p>
+                      <p className="text-xs font-semibold uppercase tracking-widest text-white/40 mb-2 shrink-0 text-center">
+                        Lyrics
+                        {nowPlaying.lyrics.provider && (
+                          <span className="ml-1.5 font-normal normal-case tracking-normal text-white/25">
+                            via {nowPlaying.lyrics.provider}
+                          </span>
+                        )}
+                      </p>
                       <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain scroll-smooth rounded-md px-0.5">
                         <div className="space-y-2 whitespace-normal [overflow-wrap:anywhere] break-words text-center">
                           {nowPlaying.lyrics.lines.map((line, idx) => (

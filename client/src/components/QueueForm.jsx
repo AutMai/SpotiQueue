@@ -1,11 +1,19 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import axios from '@/lib/api'
 import { Card, CardContent } from './ui/card'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
+import { MicOff, Mic } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
+// Lyrics lookups happen in the background on the server, so poll a couple of
+// times to pick up results that were not cached when the search returned.
+const LYRICS_POLL_DELAYS = [0, 1200, 3000, 6000]
+
 function QueueForm({ fingerprintId }) {
+  const [lyricsAvailability, setLyricsAvailability] = useState({})
+  const [lyricsRequired, setLyricsRequired] = useState(false)
+  const lyricsTimers = useRef([])
   const [searchQuery, setSearchQuery] = useState('')
   const [urlInput, setUrlInput] = useState('')
   const [searchResults, setSearchResults] = useState([])
@@ -42,6 +50,42 @@ function QueueForm({ fingerprintId }) {
     setPendingQueue(null)
     setCountdown(0)
   }, [])
+
+  const cancelLyricsPolling = useCallback(() => {
+    lyricsTimers.current.forEach(clearTimeout)
+    lyricsTimers.current = []
+  }, [])
+
+  useEffect(() => cancelLyricsPolling, [cancelLyricsPolling])
+
+  /** Fill in lyric badges for a result set, retrying while answers are still pending. */
+  const loadLyricsAvailability = useCallback((tracks) => {
+    cancelLyricsPolling()
+    if (!tracks.length) return
+
+    const payload = tracks.map(t => ({ id: t.id, name: t.name, artists: t.artists, duration_ms: t.duration_ms }))
+    let done = false
+
+    const schedule = (index) => {
+      if (done || index >= LYRICS_POLL_DELAYS.length) return
+      const timer = setTimeout(async () => {
+        try {
+          const res = await axios.post('/api/lyrics/availability', { tracks: payload })
+          const availability = res.data?.availability || {}
+          setLyricsAvailability(prev => ({ ...prev, ...availability }))
+          setLyricsRequired(!!res.data?.required)
+          // Every track answered, nothing left to wait for
+          if (Object.values(availability).every(v => v !== null)) done = true
+        } catch {
+          done = true // Badges are a nicety; stop retrying if the endpoint is unhappy
+        }
+        schedule(index + 1)
+      }, LYRICS_POLL_DELAYS[index])
+      lyricsTimers.current.push(timer)
+    }
+
+    schedule(0)
+  }, [cancelLyricsPolling])
 
   useEffect(() => {
     if (!pendingQueue || !fingerprintId) return undefined
@@ -107,6 +151,16 @@ function QueueForm({ fingerprintId }) {
     const apiError = error.response?.data?.error
     const isRateLimited = status === 429
 
+    // The host rotated the room while this page was open - the guest needs the
+    // new QR, so stop offering controls that can no longer work.
+    if (error.response?.data?.room_error) {
+      setRateLimitedAdminUrl('')
+      setMessage(apiError || 'This room has closed. Scan the new QR code to keep queueing.')
+      setMessageType('error')
+      setSearchResults([])
+      return
+    }
+
     if (isRateLimited) {
       const customMessageEnabled = !!latestConfig?.rate_limit_custom_message_enabled
       const customMessage = (latestConfig?.rate_limit_custom_message || '').trim()
@@ -137,6 +191,7 @@ function QueueForm({ fingerprintId }) {
     try {
       const response = await axios.post('/api/queue/search', { query: searchQuery })
       setSearchResults(response.data.tracks)
+      loadLyricsAvailability(response.data.tracks || [])
     } catch (error) {
       setMessage(error.response?.data?.error || 'Failed to search tracks')
       setMessageType('error')
@@ -343,27 +398,52 @@ function QueueForm({ fingerprintId }) {
 
             {searchResults.length > 0 && (
               <div className="space-y-2">
-                {searchResults.map((track) => (
-                  <div
-                    key={track.id}
-                    className="flex items-center gap-3 p-3 rounded-lg border hover:bg-accent/50 active:bg-accent/70 cursor-pointer transition-colors touch-manipulation"
-                    onClick={() => !inputsDisabled && handleQueueTrack(track.id)}
-                  >
-                    {track.album_art && (
-                      <img src={track.album_art} alt={track.album} className="w-12 h-12 sm:w-14 sm:h-14 rounded-lg object-cover shrink-0" />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium truncate flex items-center gap-2">
-                        {track.name}
-                        {track.explicit && <span className="text-xs px-1.5 py-0.5 rounded bg-muted">E</span>}
+                {searchResults.map((track) => {
+                  const hasLyrics = lyricsAvailability[track.id]
+                  const blocked = lyricsRequired && hasLyrics === false
+                  return (
+                    <div
+                      key={track.id}
+                      className={cn(
+                        'flex items-center gap-3 p-3 rounded-lg border transition-colors touch-manipulation',
+                        blocked
+                          ? 'opacity-60'
+                          : 'hover:bg-accent/50 active:bg-accent/70 cursor-pointer'
+                      )}
+                      onClick={() => !inputsDisabled && !blocked && handleQueueTrack(track.id)}
+                    >
+                      {track.album_art && (
+                        <img src={track.album_art} alt={track.album} className="w-12 h-12 sm:w-14 sm:h-14 rounded-lg object-cover shrink-0" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium truncate flex items-center gap-2">
+                          {track.name}
+                          {track.explicit && <span className="text-xs px-1.5 py-0.5 rounded bg-muted">E</span>}
+                        </div>
+                        <div className="text-sm text-muted-foreground truncate">{track.artists}</div>
+                        {hasLyrics === false && (
+                          <div className="mt-1 inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-500">
+                            <MicOff className="h-3 w-3 shrink-0" />
+                            {blocked ? 'No lyrics available - cannot be queued' : 'No lyrics available for this one'}
+                          </div>
+                        )}
+                        {hasLyrics === true && (
+                          <div className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground">
+                            <Mic className="h-3 w-3 shrink-0" /> Synced lyrics
+                          </div>
+                        )}
                       </div>
-                      <div className="text-sm text-muted-foreground truncate">{track.artists}</div>
+                      <Button
+                        size="sm"
+                        onClick={(e) => { e.stopPropagation(); handleQueueTrack(track.id) }}
+                        disabled={inputsDisabled || blocked}
+                        className="min-h-[40px] min-w-[64px] touch-manipulation shrink-0"
+                      >
+                        Queue
+                      </Button>
                     </div>
-                    <Button size="sm" onClick={(e) => { e.stopPropagation(); handleQueueTrack(track.id) }} disabled={inputsDisabled} className="min-h-[40px] min-w-[64px] touch-manipulation shrink-0">
-                      Queue
-                    </Button>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>

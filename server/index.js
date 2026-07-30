@@ -13,9 +13,11 @@ const authRouter = require('./routes/auth');
 const githubAuthRouter = require('./routes/github-auth');
 const googleAuthRouter = require('./routes/google-auth');
 const prequeueRouter = require('./routes/prequeue');
+const lyricsRouter = require('./routes/lyrics');
 const { processExpiredPendingQueues } = require('./routes/queue');
 const { initDatabase } = require('./db');
 const { createSessionMiddleware } = require('./sessionMiddleware');
+const { ensureActiveRoom } = require('./utils/rooms');
 
 const app = express();
 // In development, use port 5000 for backend API (React dev server uses 3000)
@@ -56,6 +58,9 @@ function adminCorsOrigin(origin, cb) {
 initDatabase();
 const sessionMiddleware = createSessionMiddleware();
 
+const startupRoom = ensureActiveRoom();
+console.log(`Active room code: ${startupRoom.code}`);
+
 setInterval(() => {
   processExpiredPendingQueues().catch(err => {
     console.error('Pending queue processor error:', err);
@@ -81,6 +86,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/github', githubAuthRouter);
 app.use('/api/google', googleAuthRouter);
 app.use('/api/prequeue', prequeueRouter);
+app.use('/api/lyrics', lyricsRouter);
 
 // Root route - helpful message in development
 if (!isProduction) {
@@ -170,6 +176,7 @@ adminApp.use('/api/auth', authRouter);
 adminApp.use('/api/github', githubAuthRouter);
 adminApp.use('/api/google', googleAuthRouter);
 adminApp.use('/api/prequeue', prequeueRouter);
+adminApp.use('/api/lyrics', lyricsRouter);
 
 // Root route - helpful message in development
 if (!isProduction) {

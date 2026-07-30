@@ -33,6 +33,21 @@ function initDatabase() {
   try { db.exec(`ALTER TABLE fingerprints ADD COLUMN google_id TEXT`); } catch (e) { if (!e.message.includes('duplicate')) console.warn(e.message); }
   try { db.exec(`ALTER TABLE fingerprints ADD COLUMN google_username TEXT`); } catch (e) { if (!e.message.includes('duplicate')) console.warn(e.message); }
   try { db.exec(`ALTER TABLE fingerprints ADD COLUMN google_avatar TEXT`); } catch (e) { if (!e.message.includes('duplicate')) console.warn(e.message); }
+  // Which room admitted this guest. Guests bound to a closed room must rescan the new QR.
+  try { db.exec(`ALTER TABLE fingerprints ADD COLUMN room_id INTEGER`); } catch (e) { if (!e.message.includes('duplicate')) console.warn(e.message); }
+
+  // Rooms - exactly one is active at a time. Rotating the room regenerates the
+  // guest URL/QR so a troll's old link stops working.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS rooms (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT UNIQUE NOT NULL,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      closed_at INTEGER
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_rooms_active ON rooms(active)`);
 
   // Queue attempts log
   db.exec(`
@@ -102,6 +117,31 @@ function initDatabase() {
       FOREIGN KEY (fingerprint_id) REFERENCES fingerprints(id)
     )
   `);
+  try { db.exec(`ALTER TABLE prequeue ADD COLUMN room_id INTEGER`); } catch (e) { if (!e.message.includes('duplicate')) console.warn(e.message); }
+  // 1 = synced lyrics found, 0 = none found, NULL = not checked
+  try { db.exec(`ALTER TABLE prequeue ADD COLUMN has_lyrics INTEGER`); } catch (e) { if (!e.message.includes('duplicate')) console.warn(e.message); }
+
+  // Cached "does this track have synced lyrics" answers so the check at request
+  // time costs nothing for tracks we have already looked up.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS lyrics_availability (
+      track_id TEXT PRIMARY KEY,
+      has_synced INTEGER NOT NULL,
+      checked_at INTEGER NOT NULL
+    )
+  `);
+
+  // The lyrics themselves, so a restart mid-event does not re-fetch the whole
+  // night's worth from an external service.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS lyrics_cache (
+      track_id TEXT PRIMARY KEY,
+      provider TEXT,
+      sync_type TEXT,
+      lines_json TEXT NOT NULL,
+      fetched_at INTEGER NOT NULL
+    )
+  `);
 
   // Banned tracks
   db.exec(`
@@ -145,7 +185,14 @@ function initDatabase() {
     { key: 'aura_enabled', value: 'false' },
     { key: 'queue_url', value: '' },
     { key: 'queue_grace_period_enabled', value: 'true' },
-    { key: 'queue_grace_period_seconds', value: '5' }
+    { key: 'queue_grace_period_seconds', value: '5' },
+    { key: 'rooms_enabled', value: 'true' },
+    { key: 'require_synced_lyrics', value: 'false' },
+    { key: 'lyrics_providers', value: 'lrclib,netease' },
+    // Negative = show lyrics earlier. Compensates for Spotify reporting lag plus
+    // whatever latency the venue's audio path adds (Bluetooth is the big one).
+    { key: 'lyric_sync_offset_ms', value: '-220' },
+    { key: 'prequeue_max_pending_per_guest', value: '2' }
   ];
 
   const stmt = db.prepare('INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)');

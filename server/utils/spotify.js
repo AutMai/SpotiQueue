@@ -4,10 +4,34 @@ const { getConfig } = require('./config');
 let accessToken = null;
 let tokenExpiresAt = 0;
 
+/**
+ * Player endpoints (/me/player/*) are throttled separately from the rest of the
+ * API, and the limit follows the Spotify *account*, not the app - swapping in new
+ * client credentials does not reset it.
+ *
+ * Kept here rather than in the route so reconnecting an account clears it.
+ */
+let playerBackoffUntil = 0;
+
+function getPlayerBackoffUntil() {
+  return playerBackoffUntil;
+}
+
+function setPlayerBackoff(ms) {
+  playerBackoffUntil = Date.now() + ms;
+}
+
+function clearPlayerBackoff() {
+  playerBackoffUntil = 0;
+}
+
 // Clear token cache when refresh token changes
 function clearTokenCache() {
   accessToken = null;
   tokenExpiresAt = 0;
+  // Reconnecting is the user telling us to try again - never make them wait out
+  // a backoff that was recorded against the previous connection.
+  clearPlayerBackoff();
 }
 
 // Spotify API base URL
@@ -186,6 +210,55 @@ function parseSpotifyUrl(url) {
   }
 }
 
+/** Extract a playlist or album ID from a Spotify URL/URI. */
+function parseSpotifyCollectionUrl(url) {
+  if (!url || typeof url !== 'string') return null;
+
+  const uriMatch = url.match(/^spotify:(playlist|album):([a-zA-Z0-9]+)/);
+  if (uriMatch) return { type: uriMatch[1], id: uriMatch[2] };
+
+  const webMatch = url.match(/(playlist|album)\/([a-zA-Z0-9]+)/);
+  if (webMatch) return { type: webMatch[1], id: webMatch[2].split('?')[0] };
+
+  return null;
+}
+
+/** All tracks in a playlist or album, following pagination. */
+async function getCollectionTracks(type, id, max = 500) {
+  const token = await getAccessToken();
+  const endpoint = type === 'album'
+    ? `${SPOTIFY_API_BASE}/albums/${id}/tracks`
+    : `${SPOTIFY_API_BASE}/playlists/${id}/tracks`;
+
+  const tracks = [];
+  let url = endpoint;
+  let params = { limit: 50 };
+
+  while (url && tracks.length < max) {
+    const response = await axios.get(url, {
+      params,
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+
+    for (const item of response.data.items || []) {
+      // Playlists wrap the track; album track lists do not
+      const track = type === 'album' ? item : item.track;
+      if (!track?.id) continue;
+      tracks.push({
+        id: track.id,
+        name: track.name,
+        artists: (track.artists || []).map(a => a.name).join(', '),
+        duration_ms: track.duration_ms
+      });
+    }
+
+    url = response.data.next;
+    params = undefined; // `next` already carries the query string
+  }
+
+  return tracks.slice(0, max);
+}
+
 // Get currently playing track (requires user authorization)
 async function getNowPlaying() {
   const token = await getAccessToken();
@@ -206,14 +279,17 @@ async function getNowPlaying() {
     if (response.status === 204 || !response.data) {
       return null;
     }
-    
+
+    // Null during ads, and for episodes when the client asks only for tracks
     const track = response.data.item;
+    if (!track) return null;
+
     return {
       id: track.id,
       name: track.name,
-      artists: track.artists.map(a => a.name).join(', '),
-      album: track.album.name,
-      album_art: track.album.images[0]?.url || null,
+      artists: (track.artists || []).map(a => a.name).join(', '),
+      album: track.album?.name,
+      album_art: track.album?.images?.[0]?.url || null,
       duration_ms: track.duration_ms,
       progress_ms: response.data.progress_ms,
       is_playing: response.data.is_playing
@@ -225,7 +301,13 @@ async function getNowPlaying() {
       accessToken = null;
       tokenExpiresAt = 0;
     }
-    return null;
+    // Rethrow so callers can tell "nothing is playing" (null, above) apart from
+    // "Spotify would not answer" - reporting a rate-limit as an empty player
+    // blanks every screen in the room.
+    const wrapped = new Error(`Spotify player request failed: ${error.response?.status || error.code || error.message}`);
+    wrapped.status = error.response?.status;
+    wrapped.retryAfter = parseInt(error.response?.headers?.['retry-after'] || '', 10) || null;
+    throw wrapped;
   }
 }
 
@@ -296,10 +378,15 @@ module.exports = {
   searchTracks,
   getTrack,
   parseSpotifyUrl,
+  parseSpotifyCollectionUrl,
+  getCollectionTracks,
   getNowPlaying,
   addToQueue,
   getQueue,
   getAccessToken,
-  clearTokenCache
+  clearTokenCache,
+  getPlayerBackoffUntil,
+  setPlayerBackoff,
+  clearPlayerBackoff
 };
 

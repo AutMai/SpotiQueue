@@ -4,10 +4,17 @@ import { ThemeToggle } from './components/theme-toggle'
 import NowPlaying from './components/NowPlaying'
 import QueueForm from './components/QueueForm'
 import Queue from './components/Queue'
-import { Github, Tv } from 'lucide-react'
+import { Github, Tv, QrCode, Mic } from 'lucide-react'
 
 const isDemoMode = import.meta.env.VITE_DEMO_MODE === 'true'
 const displayHref = `${import.meta.env.BASE_URL}display`.replace(/\/+/g, '/').replace(':/', '://')
+const karaokeHref = `${import.meta.env.BASE_URL}karaoke`.replace(/\/+/g, '/').replace(':/', '://')
+
+// Captured once at module load. The effect below strips ?room= from the URL, and
+// it can run more than once (React StrictMode remounts in development) - reading
+// the code from the URL a second time would come back empty and wrongly report
+// the guest as having no room.
+const initialRoomCode = new URLSearchParams(window.location.search).get('room')
 
 function App() {
   const [fingerprintId, setFingerprintId] = useState(null)
@@ -20,6 +27,7 @@ function App() {
   const [authError, setAuthError] = useState('')
   const [username, setUsername] = useState('')
   const [usernameError, setUsernameError] = useState('')
+  const [roomError, setRoomError] = useState(null)
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -33,10 +41,20 @@ function App() {
       window.history.replaceState({}, '', '/')
     }
 
-    axios.post('/api/fingerprint/generate')
+    // The room code arrives in the QR link. The server turns it into a cookie,
+    // so drop it from the address bar to keep a stale code out of history and
+    // out of screenshots.
+    if (params.has('room')) {
+      params.delete('room')
+      const query = params.toString()
+      window.history.replaceState({}, '', `${window.location.pathname}${query ? `?${query}` : ''}`)
+    }
+
+    axios.post('/api/fingerprint/generate', initialRoomCode ? { room: initialRoomCode } : {})
       .then(response => {
         const d = response.data
         setFingerprintId(d.fingerprint_id)
+        setRoomError(null)
         setRequiresUsername(d.requires_username || false)
         setRequiresAuth(!!(d.requires_github_auth || d.requires_google_auth))
         setGithubConfigured(d.github_oauth_configured || false)
@@ -45,7 +63,9 @@ function App() {
       })
       .catch(error => {
         const d = error.response?.data || {}
-        if (d.requires_username || d.requires_github_auth || d.requires_google_auth) {
+        if (d.room_error) {
+          setRoomError(d.room_error)
+        } else if (d.requires_username || d.requires_github_auth || d.requires_google_auth) {
           setRequiresUsername(!!d.requires_username)
           setRequiresAuth(!!(d.requires_github_auth || d.requires_google_auth))
           setGithubConfigured(d.github_oauth_configured || false)
@@ -95,6 +115,36 @@ function App() {
     return (
       <div className="min-h-screen min-h-[100dvh] flex items-center justify-center bg-background">
         <div className="text-muted-foreground animate-pulse">Loading...</div>
+      </div>
+    )
+  }
+
+  if (roomError) {
+    const copy = {
+      room_invalid: {
+        title: 'This room has closed',
+        body: 'The host started a new room, so this link no longer works. Scan the QR code on the screen to join the new one.'
+      },
+      no_room: {
+        title: 'No room is open',
+        body: 'The host has not opened a room yet. Ask them to start one, then scan the QR code.'
+      },
+      room_required: {
+        title: 'Scan to join',
+        body: 'Open this page by scanning the QR code shown by the host. That link is what lets you queue songs.'
+      }
+    }[roomError] || {
+      title: 'Room unavailable',
+      body: 'Scan the QR code shown by the host to join.'
+    }
+
+    return (
+      <div className="min-h-screen min-h-[100dvh] flex items-center justify-center bg-background p-4 pt-[max(1rem,env(safe-area-inset-top))]">
+        <div className="w-full max-w-md rounded-xl border bg-card p-6 sm:p-8 shadow text-center">
+          <QrCode className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+          <h1 className="text-xl sm:text-2xl font-bold mb-2">{copy.title}</h1>
+          <p className="text-muted-foreground">{copy.body}</p>
+        </div>
       </div>
     )
   }
@@ -193,9 +243,14 @@ function App() {
         </div>
       )}
       <header className="flex justify-between items-center px-4 py-3 gap-2 pt-[max(0.75rem,env(safe-area-inset-top,0px))]">
-        <a href={displayHref} title="Display mode" className="hidden sm:inline-flex p-2.5 -ml-1 rounded-lg text-muted-foreground/60 hover:text-muted-foreground hover:bg-accent/50 transition-colors touch-manipulation">
-          <Tv className="h-5 w-5" />
-        </a>
+        <div className="hidden sm:flex items-center -ml-1">
+          <a href={displayHref} title="Display mode" className="inline-flex p-2.5 rounded-lg text-muted-foreground/60 hover:text-muted-foreground hover:bg-accent/50 transition-colors touch-manipulation">
+            <Tv className="h-5 w-5" />
+          </a>
+          <a href={karaokeHref} title="Karaoke mode" className="inline-flex p-2.5 rounded-lg text-muted-foreground/60 hover:text-muted-foreground hover:bg-accent/50 transition-colors touch-manipulation">
+            <Mic className="h-5 w-5" />
+          </a>
+        </div>
         <ThemeToggle />
       </header>
       <main className="container max-w-2xl mx-auto px-4 pb-8 pb-[max(2rem,env(safe-area-inset-bottom))]">

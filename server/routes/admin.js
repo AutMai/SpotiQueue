@@ -4,20 +4,11 @@ const { getConfig } = require('../utils/config');
 const { requireAdminSession } = require('../middleware/adminSession');
 const { isTotpEnabled, verifyTotp } = require('../utils/adminLogin');
 const { verifyAdminPassword, upgradePasswordToHashIfNeeded } = require('../utils/adminPassword');
+const { getCooldownFingerprintIds } = require('../utils/cooldown');
+const { getActiveRoom, ensureActiveRoom, createRoom, buildRoomUrl, getBaseQueueUrl, roomsEnabled } = require('../utils/rooms');
 
 const router = express.Router();
 const db = getDb();
-
-// Cooldown is shared across fingerprints linked to the same GitHub/Google account.
-function getCooldownFingerprintIds(fingerprint) {
-  if (fingerprint.github_id) {
-    return db.prepare('SELECT id FROM fingerprints WHERE github_id = ?').all(fingerprint.github_id).map(r => r.id);
-  }
-  if (fingerprint.google_id) {
-    return db.prepare('SELECT id FROM fingerprints WHERE google_id = ?').all(fingerprint.google_id).map(r => r.id);
-  }
-  return [fingerprint.id];
-}
 
 router.post('/login', (req, res) => {
   const { password, totp } = req.body || {};
@@ -252,6 +243,45 @@ router.delete('/banned-tracks/:trackId', (req, res) => {
 router.get('/client-url', (req, res) => {
   const url = getConfig('queue_url') || process.env.CLIENT_URL || 'http://localhost:3000';
   res.json({ url });
+});
+
+function roomPayload(room, baseUrl) {
+  const base = baseUrl || getBaseQueueUrl();
+  return {
+    rooms_enabled: roomsEnabled(),
+    code: room ? room.code : null,
+    created_at: room ? room.created_at : null,
+    base_url: base,
+    url: room ? buildRoomUrl(room.code, base) : base
+  };
+}
+
+// Current room + the URL its QR code should encode
+router.get('/room', (req, res) => {
+  const { base_url: baseOverride } = req.query;
+  const room = roomsEnabled() ? ensureActiveRoom() : getActiveRoom();
+  res.json(roomPayload(room, typeof baseOverride === 'string' && baseOverride.trim() ? baseOverride.trim() : null));
+});
+
+/**
+ * Rotate to a fresh room: new code, new QR, old link dead.
+ *
+ * Also clears the pending approval backlog, in-flight grace-period requests,
+ * votes and cooldowns - see createRoom(). Songs already handed to Spotify keep
+ * playing, since the Web API cannot remove them from the queue.
+ */
+router.post('/room/new', (req, res) => {
+  try {
+    const room = createRoom();
+    const baseOverride = typeof req.body?.base_url === 'string' && req.body.base_url.trim()
+      ? req.body.base_url.trim()
+      : null;
+    console.log(`New room created: ${room.code}`);
+    res.json({ success: true, ...roomPayload(room, baseOverride) });
+  } catch (error) {
+    console.error('Create room error:', error);
+    res.status(500).json({ error: error.message || 'Failed to create room' });
+  }
 });
 
 // Get queue statistics
