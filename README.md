@@ -290,6 +290,11 @@ Between polls the position is tracked on a local clock that is *corrected* towar
 Spotify rather than reset by it — a real seek or track change snaps, but ordinary
 drift is absorbed gradually, so the lyric line no longer twitches every 3 seconds.
 
+The server shares one Spotify call between all screens, and age-corrects the
+cached playback position before serving it. Without that correction the reported
+position jitters by up to the cache lifetime, which is enough to trip the
+client's resync threshold and jump the highlighted line past a lyric.
+
 ### Pre-caching before an event
 
 **Configuration → Lyrics → Pre-cache lyrics from a playlist**
