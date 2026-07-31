@@ -6,6 +6,8 @@ const { isTotpEnabled, verifyTotp } = require('../utils/adminLogin');
 const { verifyAdminPassword, upgradePasswordToHashIfNeeded } = require('../utils/adminPassword');
 const { getCooldownFingerprintIds } = require('../utils/cooldown');
 const { getActiveRoom, ensureActiveRoom, createRoom, buildRoomUrl, getBaseQueueUrl, roomsEnabled } = require('../utils/rooms');
+const { skipToNext } = require('../utils/spotify');
+const { invalidateQueueCache } = require('./queue');
 
 const router = express.Router();
 const db = getDb();
@@ -243,6 +245,30 @@ router.delete('/banned-tracks/:trackId', (req, res) => {
 router.get('/client-url', (req, res) => {
   const url = getConfig('queue_url') || process.env.CLIENT_URL || 'http://localhost:3000';
   res.json({ url });
+});
+
+/**
+ * Skip whatever is playing.
+ *
+ * Spotify has no way to remove a track from the queue, so once something is on
+ * the speakers this is the only remedy - which matters when a request slips
+ * through moderation.
+ */
+router.post('/playback/next', async (req, res) => {
+  try {
+    const skipped = db.prepare(`
+      SELECT track_id, track_name FROM queue_attempts
+      WHERE status = 'success' ORDER BY timestamp DESC LIMIT 1
+    `).get();
+
+    await skipToNext();
+    invalidateQueueCache();
+
+    console.log(`Admin skipped the current track${skipped?.track_name ? `: ${skipped.track_name}` : ''}`);
+    res.json({ success: true, message: 'Skipped to the next track.' });
+  } catch (error) {
+    res.status(502).json({ error: error.message || 'Failed to skip track' });
+  }
 });
 
 function roomPayload(room, baseUrl) {

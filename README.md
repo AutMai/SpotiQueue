@@ -256,8 +256,20 @@ Two deliberate choices keep it readable while singing:
   active line stays centred, which is far easier to follow than lines snapping
   between positions.
 
+If guests give a name (Configuration → User Identification → Require Username, or
+GitHub/Google sign-in), the karaoke screen shows **who requested the current song**
+under the cover art, and lists the requester instead of the artist in the up-next
+rail — so people know when they are on.
+
 Use `/display` for background/party ambience and `/karaoke` when someone is at the
 mic. Both are linked from the guest page header and share the same sync settings.
+
+### Skipping a song
+
+Spotify's API cannot remove a track from the queue, so once something is playing
+the only remedy is to skip it. **Admin → Prequeue** shows what is playing, who
+requested it, and a **Skip** button. Requires a Premium account and an active
+playback device.
 
 ### Sync calibration
 
@@ -364,7 +376,7 @@ The admin panel has seven tabs:
 
 1. **Spotify**: Connect or reconnect your Spotify account (no restart needed)
 1b. **QR Code**: Show the current room code and QR, download it as an image, or create a new room
-2. **Prequeue**: Approve or decline track requests when prequeue is enabled
+2. **Prequeue**: Approve or decline track requests when prequeue is enabled, see who submitted each one, and skip the current track
 3. **Devices**: View and manage device fingerprints, block/unblock devices, reset cooldowns
 4. **Banned Tracks**: Manage list of banned tracks
 5. **Configuration**: Adjust settings:
