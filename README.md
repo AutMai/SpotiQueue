@@ -170,6 +170,12 @@ pm2 save
 pm2 startup
 ```
 
+### Option 1a: Raspberry Pi at the venue
+
+See [RASPBERRY_PI_SETUP.md](RASPBERRY_PI_SETUP.md) for running the whole event
+from a Pi: hosting the app, driving the beamer in kiosk mode, reaching the
+internet through a phone hotspot, and exposing both the guest and admin UIs.
+
 ### Option 1b: Cloudflare Tunnel (No Port Forwarding Required)
 
 See [CLOUDFLARE_TUNNEL.md](CLOUDFLARE_TUNNEL.md) for instructions on exposing your app through Cloudflare Tunnel. This allows you to:
