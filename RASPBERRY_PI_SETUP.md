@@ -141,10 +141,10 @@ sudo nano /etc/xdg/lxsession/LXDE-pi/autostart
 The screen loads from `localhost`, so the beamer keeps working even if the
 hotspot drops — lyrics are already cached in SQLite on the Pi.
 
-## 6. Exposing guest and admin
+## 6. Exposing guest and admin through one tunnel
 
-Both UIs need to be reachable, on separate ports. One tunnel plus a tiny
-reverse proxy is simpler than running two tunnels.
+Guest UI is on :3000 and admin on :3001. Put a small reverse proxy in front so a
+single tunnel serves both — simpler than juggling two tunnel URLs.
 
 ```bash
 sudo apt install -y caddy
@@ -164,15 +164,102 @@ sudo nano /etc/caddy/Caddyfile
 
 ```bash
 sudo systemctl restart caddy
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/    # expect 200
 ```
 
-Then install `cloudflared` and point one tunnel at `localhost:8080`. A **named**
-tunnel (needs a domain on Cloudflare, ~10 EUR/yr) gives stable hostnames — worth
-it, because a quick tunnel hands out a new random URL on every restart and that
-invalidates every printed QR code.
+Because everything now arrives on one hostname, guest and admin requests are
+**same-origin** — CORS never fires, so `CLIENT_URL` and `ADMIN_CLIENT_URL` do not
+need to match the tunnel and can stay as they are.
 
-Set `CLIENT_URL` and `ADMIN_CLIENT_URL` in `.env` to the final URLs, restart the
-service, then update the **Redirect URI** in the Spotify dashboard to match.
+### Install cloudflared
+
+Raspberry Pi OS 64-bit:
+
+```bash
+curl -L -o cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64.deb
+sudo dpkg -i cloudflared.deb
+cloudflared --version
+```
+
+On 32-bit Pi OS use `cloudflared-linux-arm.deb` instead. Check with
+`uname -m` — `aarch64` means 64-bit, `armv7l` means 32-bit.
+
+### Try it once by hand
+
+```bash
+cloudflared tunnel --url http://localhost:8080
+```
+
+It prints a URL like `https://tasty-purple-fox-1234.trycloudflare.com`. No
+Cloudflare account and no domain required. Open it on your phone over **mobile
+data** to confirm the guest page loads, then `Ctrl+C`.
+
+### Run it on boot
+
+```bash
+sudo nano /etc/systemd/system/cloudflared-quick.service
+```
+
+```ini
+[Unit]
+Description=Cloudflare quick tunnel
+After=network-online.target caddy.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/cloudflared tunnel --no-autoupdate --url http://localhost:8080
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now cloudflared-quick
+```
+
+### Read the current URL
+
+The URL changes on every restart, so fetch it rather than remembering it:
+
+```bash
+sudo journalctl -u cloudflared-quick | grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' | tail -1
+```
+
+Worth saving as a shortcut:
+
+```bash
+echo "alias tunnelurl=\"sudo journalctl -u cloudflared-quick | grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' | tail -1\"" >> ~/.bashrc
+source ~/.bashrc
+tunnelurl
+```
+
+### After every restart
+
+1. `tunnelurl` — copy the address
+2. Open `<url>/admin`, sign in
+3. **Configuration → URLs → Queue URL** — paste the URL, Save
+4. **QR Code** tab — the QR now encodes `<url>/?room=CODE`
+
+Queue URL lives in the database and is read on every request, so this takes
+effect **immediately — no service restart**. Show the QR from your phone and send
+helpers `<url>/admin`.
+
+### Spotify dashboard
+
+Nothing to change. The redirect URI is only used when *authorising*; once a
+refresh token exists the app uses `grant_type=refresh_token`, which sends no
+redirect URI at all. A rotating tunnel URL is invisible to Spotify.
+
+If you ever need to re-authorise on the Pi, pin the redirect so it never depends
+on the tunnel — add to `.env` and register exactly this in the dashboard:
+
+```env
+SPOTIFY_REDIRECT_URI=http://127.0.0.1:3000/api/auth/callback
+```
 
 ## 7. Before exposing the admin panel
 
@@ -196,15 +283,20 @@ playback and rotate rooms. Share it only with the people who should have that.
 
 Do this at home, on the hotspot, exactly as it will run:
 
-1. `systemctl status spotiqueue` — active, and survives `sudo reboot`
+1. `sudo reboot`, then check all three services came back:
+   `systemctl status spotiqueue caddy cloudflared-quick`
 2. Beamer shows `/karaoke` automatically after boot
-3. Phone plays Spotify to the Bluetooth speaker; the Pi's screen follows it
-4. **Calibrate** Configuration → Display Mode → Lyric Sync Offset. Bluetooth adds
+3. `tunnelurl` — set it as Queue URL in Configuration → URLs
+4. Phone plays Spotify to the Bluetooth speaker; the Pi's screen follows it
+5. **Calibrate** Configuration → Display Mode → Lyric Sync Offset. Bluetooth adds
    100-300ms, so start near `-500` rather than the `-220` default
-5. Scan the QR **on mobile data, not WiFi** — that is the path guests will use
-6. Have a friend sign in to the admin URL and approve a song
-7. Press Skip and confirm the track changes
-8. Pre-cache the setlist: Configuration → Lyrics → Pre-cache from a playlist
+6. Scan the QR **on mobile data, not WiFi** — that is the path guests will use
+7. Have a friend sign in to `<url>/admin` and approve a song
+8. Press Skip and confirm the track changes
+9. Pre-cache the setlist: Configuration → Lyrics → Pre-cache from a playlist
+
+Practise step 3 once so it is muscle memory — it is the only thing you must redo
+if the Pi restarts mid-event.
 
 ## Troubleshooting
 
@@ -223,3 +315,12 @@ rescan the current QR.
 
 **Port already in use after a restart** — `sudo systemctl restart spotiqueue`.
 Check `journalctl -u spotiqueue -n 50` for the real error.
+
+**Tunnel URL stopped working** — the Pi or the tunnel restarted and the address
+changed. Run `tunnelurl`, update Queue URL, reshow the QR, resend the admin link.
+
+**Helpers cannot sign in** — after 20 wrong attempts in 10 minutes that IP is
+blocked. `sudo systemctl restart spotiqueue` clears the counters.
+
+**Guest page loads but the admin is 404** — Caddy is not routing `/admin`. Check
+`sudo systemctl status caddy` and that the tunnel points at `:8080`, not `:3000`.
