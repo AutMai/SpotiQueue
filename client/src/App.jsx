@@ -5,6 +5,7 @@ import NowPlaying from './components/NowPlaying'
 import QueueForm from './components/QueueForm'
 import Queue from './components/Queue'
 import { Github, Tv, QrCode, Mic, Hourglass, UserX } from 'lucide-react'
+import { InstagramIcon } from './components/InstagramIcon'
 
 const isDemoMode = import.meta.env.VITE_DEMO_MODE === 'true'
 const displayHref = `${import.meta.env.BASE_URL}display`.replace(/\/+/g, '/').replace(':/', '://')
@@ -293,7 +294,7 @@ function App() {
           </a>
         </div>
       )}
-      <header className="flex justify-between items-center px-4 py-3 gap-2 pt-[max(0.75rem,env(safe-area-inset-top,0px))]">
+      <header className="flex items-center px-4 py-3 gap-2 pt-[max(0.75rem,env(safe-area-inset-top,0px))]">
         <div className="hidden sm:flex items-center -ml-1">
           <a href={displayHref} title="Display mode" className="inline-flex p-2.5 rounded-lg text-muted-foreground/60 hover:text-muted-foreground hover:bg-accent/50 transition-colors touch-manipulation">
             <Tv className="h-5 w-5" />
@@ -302,7 +303,21 @@ function App() {
             <Mic className="h-5 w-5" />
           </a>
         </div>
-        <ThemeToggle />
+        {/* ml-auto rather than justify-between: the left group is hidden on
+            phones, which would otherwise drag these over to the left edge. */}
+        <div className="ml-auto flex items-center gap-1">
+          <ThemeToggle />
+          <a
+            href="https://www.instagram.com/sebastian_.hbr"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Instagram"
+            aria-label="Instagram"
+            className="inline-flex p-2.5 rounded-lg transition-transform hover:scale-110 active:scale-95 touch-manipulation"
+          >
+            <InstagramIcon className="h-[1.375rem] w-[1.375rem]" />
+          </a>
+        </div>
       </header>
       <main className="container max-w-2xl mx-auto px-4 pb-8 pb-[max(2rem,env(safe-area-inset-bottom))]">
         <h1 className="text-xl sm:text-2xl font-bold mb-4 sm:mb-6">Queue a Song</h1>
