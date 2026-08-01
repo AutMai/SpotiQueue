@@ -452,6 +452,30 @@ which step failed rather than exiting quietly.
 Delete any leftover `~/.config/autostart/karaoke.desktop` from an earlier setup,
 otherwise two things race to open a kiosk.
 
+**"Authentication required" / unlock keyring popup at startup** — something is
+reaching for the GNOME keyring, which autologin never unlocks because no password
+was typed. `scripts/karaoke-screen.sh` already passes `--password-store=basic` so
+Chromium stops asking.
+
+If a prompt still appears, it is coming from something else holding secrets in
+that keyring, usually a saved WiFi network. Two ways out:
+
+```bash
+# Make the WiFi connection system-wide instead of per-user
+nmcli connection show
+sudo nmcli connection modify "<name>" connection.permissions ''
+```
+
+Or remove the password from the login keyring so it unlocks itself:
+
+```bash
+sudo apt install -y seahorse
+# Passwords and Keys -> right-click "Login" -> Change Password -> leave empty
+```
+
+Deleting `~/.local/share/keyrings/` also works, but it discards every stored
+secret, so anything relying on it has to be entered again.
+
 **Screen says "Reconnecting"** — the hotspot dropped. The beamer recovers on its
 own; queueing needs the connection back.
 

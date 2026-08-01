@@ -61,6 +61,11 @@ setsid "$BROWSER" \
   --disable-features=Translate \
   --check-for-update-interval=31536000 \
   --incognito \
+  `# Keep Chromium away from the GNOME keyring. Under autologin the login` \
+  `# keyring is never unlocked, so touching it pops an "authentication` \
+  `# required" dialog over the beamer on every boot. Nothing is stored` \
+  `# anyway - the session is incognito.` \
+  --password-store=basic \
   "$URL" >/dev/null 2>&1 < /dev/null &
 
 sleep 2
