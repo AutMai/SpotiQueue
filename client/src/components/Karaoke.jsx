@@ -203,14 +203,14 @@ export default function Karaoke() {
       </div>
 
       {/* Side rail */}
-      <aside className="flex w-[clamp(14rem,21vw,24rem)] shrink-0 flex-col gap-[2vh] border-l border-white/10 bg-black/40 p-[1.2vw]">
+      <aside className="flex w-[clamp(14rem,21vw,24rem)] shrink-0 flex-col gap-[2vh] border-l border-white/20 bg-black/60 p-[1.2vw]">
         {nowPlaying ? (
           <div className="shrink-0">
             <SideAlbumArt src={nowPlaying.album_art} alt={nowPlaying.album} />
             <p className="mt-[1vh] truncate text-[clamp(1.125rem,1.6vw,1.75rem)] font-semibold" title={nowPlaying.name}>
               {nowPlaying.name}
             </p>
-            <p className="truncate text-[clamp(0.9375rem,1.15vw,1.375rem)] text-white/50" title={nowPlaying.artists}>
+            <p className="truncate text-[clamp(0.9375rem,1.15vw,1.375rem)] font-medium text-white/85" title={nowPlaying.artists}>
               {nowPlaying.artists}
             </p>
             {nowPlaying.requested_by && (
@@ -222,7 +222,7 @@ export default function Karaoke() {
                 {nowPlaying.requested_by}
               </p>
             )}
-            <div className="mt-[0.8vh] h-1 w-full overflow-hidden rounded-full bg-white/15">
+            <div className="mt-[0.8vh] h-[0.6vh] min-h-[4px] w-full overflow-hidden rounded-full bg-white/30">
               <div
                 className="h-full rounded-full"
                 style={{
@@ -232,7 +232,7 @@ export default function Karaoke() {
                 }}
               />
             </div>
-            <div className="mt-[0.4vh] flex justify-between font-mono text-[clamp(0.75rem,0.95vw,1.0625rem)] tabular-nums text-white/35">
+            <div className="mt-[0.4vh] flex justify-between font-mono text-[clamp(0.75rem,0.95vw,1.0625rem)] font-medium tabular-nums text-white/75">
               <span>{formatDuration(getPlaybackMs())}</span>
               <span>{formatDuration(nowPlaying.duration_ms)}</span>
             </div>
@@ -242,23 +242,23 @@ export default function Karaoke() {
         )}
 
         <div className="flex min-h-0 flex-1 flex-col">
-          <p className="mb-[0.8vh] shrink-0 text-[clamp(0.75rem,0.95vw,1rem)] font-semibold uppercase tracking-widest text-white/35">
+          <p className="mb-[0.8vh] shrink-0 text-[clamp(0.75rem,0.95vw,1rem)] font-semibold uppercase tracking-widest text-white/75">
             Up next
           </p>
           <div className="no-scrollbar min-h-0 flex-1 space-y-[0.8vh] overflow-y-auto">
             {upNext.length === 0 ? (
-              <p className="text-[clamp(0.875rem,1.05vw,1.125rem)] text-white/25">Queue is empty</p>
+              <p className="text-[clamp(0.875rem,1.05vw,1.125rem)] text-white/60">Queue is empty</p>
             ) : (
               upNext.slice(0, 6).map((track, i) => (
                 <div key={`${track.id}-${i}`} className="flex items-center gap-[0.5vw]">
-                  <span className="w-[1.2em] shrink-0 text-right font-mono text-[clamp(0.75rem,0.95vw,1.0625rem)] tabular-nums text-white/25">
+                  <span className="w-[1.2em] shrink-0 text-right font-mono text-[clamp(0.75rem,0.95vw,1.0625rem)] font-semibold tabular-nums text-white/70">
                     {i + 1}
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[clamp(0.875rem,1.25vw,1.375rem)] font-medium" title={track.name}>
                       {track.name}
                     </p>
-                    <p className="truncate text-[clamp(0.8125rem,1.05vw,1.1875rem)] text-white/40" title={track.artists}>
+                    <p className="truncate text-[clamp(0.8125rem,1.05vw,1.1875rem)] text-white/80" title={track.artists}>
                       {track.requested_by || track.artists}
                     </p>
                   </div>
@@ -281,7 +281,7 @@ export default function Karaoke() {
                 className="h-auto w-full"
               />
             </div>
-            <p className="mt-[0.6vh] text-center text-[clamp(0.8125rem,1.05vw,1.1875rem)] text-white/40">
+            <p className="mt-[0.6vh] text-center text-[clamp(0.8125rem,1.05vw,1.1875rem)] text-white/75">
               Scan to queue a song
             </p>
           </div>
