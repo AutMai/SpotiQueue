@@ -324,3 +324,17 @@ blocked. `sudo systemctl restart spotiqueue` clears the counters.
 
 **Guest page loads but the admin is 404** — Caddy is not routing `/admin`. Check
 `sudo systemctl status caddy` and that the tunnel points at `:8080`, not `:3000`.
+
+**Admin login flashes then returns to the login screen** — the session cookie is
+not being stored. Sign-in itself succeeded; the next request just looked signed
+out. Check whether a cookie is issued at all:
+
+```bash
+curl -si -X POST http://localhost:3001/api/admin/login \
+  -H 'Content-Type: application/json' -d '{"password":"YOURPASS"}' | grep -i set-cookie
+```
+
+No `Set-Cookie` line means the cookie was suppressed. Make sure you are running a
+build that sets `secure: 'auto'` in `server/sessionMiddleware.js` — older builds
+forced `Secure` in production, which silently dropped the cookie on any plain-HTTP
+address such as `http://raspberrypi.local:3001/admin`.
