@@ -281,16 +281,37 @@ source ~/.bashrc
 tunnelurl
 ```
 
-### After every restart
+### Make it plug and play
 
-1. `tunnelurl` — copy the address
-2. Open `<url>/admin`, sign in
-3. **Configuration → URLs → Queue URL** — paste the URL, Save
-4. **QR Code** tab — the QR now encodes `<url>/?room=CODE`
+You do not have to copy the URL by hand. One script waits for the tunnel, writes
+the address into the config, and opens the beamer screen:
 
-Queue URL lives in the database and is read on every request, so this takes
-effect **immediately — no service restart**. Show the QR from your phone and send
-helpers `<url>/admin`.
+```bash
+./scripts/event-start.sh
+```
+
+Install it so powering the Pi on is the whole procedure:
+
+```bash
+./scripts/install-autostart.sh      # --remove to undo
+sudo reboot
+```
+
+It detects which desktop the Pi uses (wayfire, labwc or LXDE) and installs the
+right kind of entry, and warns if the Pi is not set to boot to a desktop.
+
+After that, an event is: **plug in the Pi, wait about a minute, show the QR from
+the beamer.**
+
+Queue URL lives in the database and is read on every request, so writing it needs
+no restart. To set it manually anyway:
+
+```bash
+node scripts/apply-tunnel-url.js https://something.trycloudflare.com
+```
+
+Or read the current address with `tunnelurl` and paste it into
+**Configuration → URLs → Queue URL**.
 
 ### Spotify dashboard
 
@@ -304,6 +325,36 @@ on the tunnel — add to `.env` and register exactly this in the dashboard:
 ```env
 SPOTIFY_REDIRECT_URI=http://127.0.0.1:3000/api/auth/callback
 ```
+
+### Reaching the admin panel from your phone
+
+The QR on the beamer encodes `https://<tunnel>/?room=CODE`. Scan it, then change
+the path to `/admin` and you are on the admin panel — same hostname, no second
+URL to remember and nothing to write down.
+
+That convenience cuts both ways: **every guest who scans the QR can find
+`/admin` just as easily.** It is protected by the password alone, so treat that
+password as the only thing standing between a guest and your queue controls. See
+the checklist below.
+
+If you would rather it were not guessable, serve it from a non-obvious path in
+the Caddyfile:
+
+```
+:8080 {
+    handle /backstage-x7f2* {
+        uri strip_prefix /backstage-x7f2
+        rewrite * /admin{uri}
+        reverse_proxy localhost:3001
+    }
+    handle {
+        reverse_proxy localhost:3000
+    }
+}
+```
+
+That is obscurity rather than security - it stops idle poking, not an attacker -
+so do it *in addition to* a strong password, never instead of one.
 
 ## 7. Before exposing the admin panel
 
@@ -327,10 +378,11 @@ playback and rotate rooms. Share it only with the people who should have that.
 
 Do this at home, on the hotspot, exactly as it will run:
 
-1. `sudo reboot`, then check all three services came back:
-   `systemctl status spotiqueue caddy cloudflared-quick`
-2. `tunnelurl` — set it as Queue URL in Configuration → URLs
-3. `./scripts/karaoke-screen.sh` — beamer shows the karaoke screen
+1. `sudo reboot` and touch nothing. Within a minute or so the beamer should show
+   the karaoke screen with a QR already pointing at the new tunnel
+2. If not, check the three services: `systemctl status spotiqueue caddy cloudflared-quick`,
+   then run `./scripts/event-start.sh` by hand and read what it prints
+3. Scan the QR, then edit the path to `/admin` and sign in from your phone
 4. Phone plays Spotify to the Bluetooth speaker; the Pi's screen follows it
 5. **Calibrate** Configuration → Display Mode → Lyric Sync Offset. Bluetooth adds
    100-300ms, so start near `-500` rather than the `-220` default
@@ -339,8 +391,9 @@ Do this at home, on the hotspot, exactly as it will run:
 8. Press Skip and confirm the track changes
 9. Pre-cache the setlist: Configuration → Lyrics → Pre-cache from a playlist
 
-Practise step 3 once so it is muscle memory — it is the only thing you must redo
-if the Pi restarts mid-event.
+With autostart installed, a mid-event reboot recovers on its own: the tunnel
+comes back with a new address, the QR is rewritten to match, and the beamer
+reopens. Only guests who scanned the *old* QR need to rescan.
 
 ## Troubleshooting
 
