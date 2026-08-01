@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import axios, { authHandlers } from '@/lib/api'
-import { Menu, X, Github, LogOut } from 'lucide-react'
+import { Menu, X, LogOut } from 'lucide-react'
 import { ThemeToggle } from './components/theme-toggle'
 import AdminLogin from './components/AdminLogin'
 import DeviceManagement from './components/DeviceManagement'
@@ -236,17 +236,6 @@ function App() {
               </main>
             </div>
 
-            <footer className="shrink-0 border-t px-4 py-2 pb-safe pl-safe pr-safe">
-              <a
-                href="https://github.com/stroepwafel/spotiqueue"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex min-h-[44px] items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground/80 sm:min-h-0"
-              >
-                <Github className="h-3.5 w-3.5" />
-                GitHub
-              </a>
-            </footer>
           </div>
         </>
       )}
