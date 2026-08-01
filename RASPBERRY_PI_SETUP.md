@@ -25,9 +25,15 @@ Raspberry Pi OS (64-bit), Pi 4 or 5. A Pi Zero will not drive Chromium at 1080p.
 ```bash
 sudo apt update && sudo apt full-upgrade -y
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt install -y nodejs git chromium-browser unclutter
-node --version    # expect v20.x
+sudo apt install -y nodejs git
+# Bookworm and later ship 'chromium'; older releases ship 'chromium-browser'
+sudo apt install -y chromium || sudo apt install -y chromium-browser
+node --version                        # expect v20.x
+command -v chromium chromium-browser  # must print a path
 ```
+
+If that last line prints nothing, Chromium is not installed and no kiosk setup
+can work. Install it before going further.
 
 ## 2. Install the app
 
@@ -397,10 +403,20 @@ reopens. Only guests who scanned the *old* QR need to rescan.
 
 ## Troubleshooting
 
-**Nothing appears on the beamer** — first check the Pi is booted to a desktop:
-`systemctl get-default` must say `graphical.target`. Then run
-`./scripts/karaoke-screen.sh` and read what it prints. If Chromium is missing,
-`sudo apt install -y chromium`.
+**Nothing appears on the beamer** — run these four checks:
+
+```bash
+command -v chromium chromium-browser   # a path, or Chromium is not installed
+systemctl get-default                  # must be graphical.target
+echo "$XDG_SESSION_TYPE"               # wayland or x11
+ls ~/.config/autostart/ 2>/dev/null    # any stale entry from an older guide?
+```
+
+Then run `./scripts/event-start.sh` by hand and read what it prints — it reports
+which step failed rather than exiting quietly.
+
+Delete any leftover `~/.config/autostart/karaoke.desktop` from an earlier setup,
+otherwise two things race to open a kiosk.
 
 **Screen says "Reconnecting"** — the hotspot dropped. The beamer recovers on its
 own; queueing needs the connection back.
