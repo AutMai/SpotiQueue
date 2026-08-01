@@ -401,6 +401,40 @@ With autostart installed, a mid-event reboot recovers on its own: the tunnel
 comes back with a new address, the QR is rewritten to match, and the beamer
 reopens. Only guests who scanned the *old* QR need to rescan.
 
+## 9. Shutting down
+
+Do not pull the power cable. The database itself is on SQLite's crash-safe
+settings (rollback journal with `synchronous=FULL`), but the SD card filesystem
+is what suffers from an abrupt cut.
+
+```bash
+sudo poweroff
+```
+
+Wait for the green activity LED to stop blinking, then unplug.
+
+The kiosk covers the screen, so to reach a prompt at the venue:
+
+- `./scripts/karaoke-screen.sh stop` over SSH, or
+- **Ctrl+Alt+F2** on an attached keyboard for a console, then `sudo poweroff`
+- On a Pi 5, one short press of the power button shuts down cleanly
+- Over SSH from a phone: do it **before** switching off the hotspot, or the
+  connection goes with it
+
+Pack-up order: shut the Pi down, wait for the LED, unplug the Pi, then everything
+else.
+
+### Back up the database
+
+It holds the pre-cached lyrics, the room, and your configuration. Copy it
+somewhere safe once the setlist is cached:
+
+```bash
+scp pi@raspberrypi.local:~/SpotiQueue/data/queue.db ./queue-backup.db
+```
+
+Restoring is copying it back to `data/queue.db` with the service stopped.
+
 ## Troubleshooting
 
 **Nothing appears on the beamer** — run these four checks:
