@@ -115,31 +115,75 @@ journalctl -u spotiqueue -f      # live logs
 
 ## 5. Beamer in kiosk mode
 
-```bash
-mkdir -p ~/.config/autostart && nano ~/.config/autostart/karaoke.desktop
-```
+### Prerequisite: the Pi must boot to a desktop
 
-```ini
-[Desktop Entry]
-Type=Application
-Name=Karaoke
-Exec=chromium-browser --kiosk --noerrdialogs --disable-infobars --incognito --check-for-update-interval=31536000 http://localhost:3000/karaoke
-X-GNOME-Autostart-enabled=true
-```
-
-Stop the screen blanking mid-song:
+Without a graphical session there is nothing for Chromium to appear on, and any
+autostart entry silently does nothing.
 
 ```bash
-sudo nano /etc/xdg/lxsession/LXDE-pi/autostart
-# add:
-@xset s off
-@xset -dpms
-@xset s noblank
-@unclutter -idle 0
+systemctl get-default        # want: graphical.target
 ```
 
-The screen loads from `localhost`, so the beamer keeps working even if the
-hotspot drops — lyrics are already cached in SQLite on the Pi.
+If it says `multi-user.target`:
+
+```bash
+sudo raspi-config
+#   System Options -> Boot / Auto Login -> Desktop Autologin
+sudo reboot
+```
+
+### Launching it
+
+Use the bundled script rather than an autostart entry. Running it by hand fits
+the event better anyway: on a quick tunnel you set the Queue URL first, then
+bring up the screen.
+
+```bash
+chmod +x scripts/karaoke-screen.sh      # first time only
+
+./scripts/karaoke-screen.sh             # karaoke screen
+./scripts/karaoke-screen.sh display     # the ambient /display view
+./scripts/karaoke-screen.sh stop        # close it
+```
+
+It works over SSH — it attaches to the Pi's own session and keeps running after
+you disconnect, so you can start the beamer from your laptop.
+
+The script handles the things that differ between Pi OS releases: Bookworm ships
+`chromium` while older releases ship `chromium-browser`, and Bookworm defaults to
+Wayland where the old `DISPLAY=:0` assumption no longer holds. It also replaces
+any kiosk already running, so re-running is always safe.
+
+### Optional: start it automatically
+
+Only worth it if you leave the Queue URL fixed. Which file to use depends on the
+desktop, which is why the manual script is the more reliable default:
+
+- **Bookworm (wayfire)** — add to `~/.config/wayfire.ini`:
+  ```ini
+  [autostart]
+  karaoke = /home/pi/SpotiQueue/scripts/karaoke-screen.sh
+  ```
+- **Bookworm (labwc)** — add the same line to `~/.config/labwc/autostart`
+- **Bullseye and older (LXDE/X11)** — `~/.config/autostart/karaoke.desktop`:
+  ```ini
+  [Desktop Entry]
+  Type=Application
+  Name=Karaoke
+  Exec=/home/pi/SpotiQueue/scripts/karaoke-screen.sh
+  ```
+
+Check which you are on with `echo $XDG_SESSION_TYPE` (`wayland` or `x11`).
+
+### Keep the screen awake
+
+On X11 the script already disables blanking. Under Wayland, use the desktop's
+own setting: **Preferences → Screen Blanking → off**, or install `wlr-randr` and
+disable it there. A beamer going black three minutes into a song is the most
+annoying failure on the night, so confirm it before the event.
+
+The page loads from `localhost`, so the beamer keeps working even if the hotspot
+drops — lyrics are already cached in SQLite on the Pi.
 
 ## 6. Exposing guest and admin through one tunnel
 
@@ -285,8 +329,8 @@ Do this at home, on the hotspot, exactly as it will run:
 
 1. `sudo reboot`, then check all three services came back:
    `systemctl status spotiqueue caddy cloudflared-quick`
-2. Beamer shows `/karaoke` automatically after boot
-3. `tunnelurl` — set it as Queue URL in Configuration → URLs
+2. `tunnelurl` — set it as Queue URL in Configuration → URLs
+3. `./scripts/karaoke-screen.sh` — beamer shows the karaoke screen
 4. Phone plays Spotify to the Bluetooth speaker; the Pi's screen follows it
 5. **Calibrate** Configuration → Display Mode → Lyric Sync Offset. Bluetooth adds
    100-300ms, so start near `-500` rather than the `-220` default
@@ -299,6 +343,11 @@ Practise step 3 once so it is muscle memory — it is the only thing you must re
 if the Pi restarts mid-event.
 
 ## Troubleshooting
+
+**Nothing appears on the beamer** — first check the Pi is booted to a desktop:
+`systemctl get-default` must say `graphical.target`. Then run
+`./scripts/karaoke-screen.sh` and read what it prints. If Chromium is missing,
+`sudo apt install -y chromium`.
 
 **Screen says "Reconnecting"** — the hotspot dropped. The beamer recovers on its
 own; queueing needs the connection back.

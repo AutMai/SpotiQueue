@@ -1,2 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Shell scripts must keep LF: CRLF makes the shebang unusable on Linux
+# ("bad interpreter"), which is exactly where these run.
+*.sh text eol=lf
