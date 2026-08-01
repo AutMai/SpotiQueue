@@ -21,6 +21,8 @@ router.get('/public', (req, res) => {
   res.json({
     rooms_enabled: roomsEnabled(),
     room_code: activeRoom ? activeRoom.code : null,
+    require_join_approval: getConfig('require_join_approval') === 'true',
+    karaoke_qr_overlay: getConfig('karaoke_qr_overlay') === 'true',
     require_synced_lyrics: getConfig('require_synced_lyrics') === 'true',
     lyric_sync_offset_ms: parseInt(getConfig('lyric_sync_offset_ms') || '-220', 10) || 0,
     prequeue_enabled: getConfig('prequeue_enabled') === 'true',

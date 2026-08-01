@@ -4,7 +4,7 @@ import { QRCodeSVG, QRCodeCanvas } from 'qrcode.react'
 import { Card, CardContent } from './ui/card'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
-import { Download, ImageIcon, RefreshCw, ShieldAlert, Loader2 } from 'lucide-react'
+import { Download, ImageIcon, RefreshCw, ShieldAlert, Loader2, Eye, EyeOff } from 'lucide-react'
 
 function QrCode() {
   const [room, setRoom] = useState(null)
@@ -13,6 +13,8 @@ function QrCode() {
   const [customUrl, setCustomUrl] = useState('')
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState('')
+  const [overlay, setOverlay] = useState(false)
+  const [overlayBusy, setOverlayBusy] = useState(false)
 
   useEffect(() => {
     axios.get('/api/admin/room')
@@ -23,6 +25,30 @@ function QrCode() {
       .catch(() => setError('Could not load the current room.'))
       .finally(() => setLoading(false))
   }, [])
+
+  // Reflects the live flag, so the button is right even if another helper toggled it
+  useEffect(() => {
+    const read = () => axios.get('/api/config/public')
+      .then(res => setOverlay(!!res.data?.karaoke_qr_overlay))
+      .catch(() => {})
+    read()
+    const timer = setInterval(read, 5000)
+    return () => clearInterval(timer)
+  }, [])
+
+  const toggleOverlay = async () => {
+    setOverlayBusy(true)
+    setError('')
+    try {
+      const next = !overlay
+      await axios.put('/api/config/karaoke_qr_overlay', { value: next ? 'true' : 'false' })
+      setOverlay(next)
+    } catch (e) {
+      setError(e.response?.data?.error || 'Could not toggle the big QR.')
+    } finally {
+      setOverlayBusy(false)
+    }
+  }
 
   const qrCanvasRef = useRef(null)
 
@@ -208,6 +234,33 @@ function QrCode() {
               </div>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="pt-6">
+          <h2 className="text-lg font-semibold mb-1">Show it big on the karaoke screen</h2>
+          <p className="text-sm text-muted-foreground mb-4">
+            Fills the beamer with this QR code so a whole group can scan at once. The
+            lyrics come back the moment you switch it off. Takes a few seconds to appear.
+          </p>
+          <Button
+            variant={overlay ? 'destructive' : 'default'}
+            onClick={toggleOverlay}
+            disabled={overlayBusy}
+            className="min-h-[44px]"
+          >
+            {overlayBusy
+              ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Working…</>
+              : overlay
+                ? <><EyeOff className="h-4 w-4 mr-2" /> Hide the big QR</>
+                : <><Eye className="h-4 w-4 mr-2" /> Show the big QR</>}
+          </Button>
+          {overlay && (
+            <p className="mt-3 text-sm text-amber-600 dark:text-amber-500">
+              The karaoke screen is showing the QR instead of lyrics right now.
+            </p>
+          )}
         </CardContent>
       </Card>
 

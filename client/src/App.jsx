@@ -4,7 +4,7 @@ import { ThemeToggle } from './components/theme-toggle'
 import NowPlaying from './components/NowPlaying'
 import QueueForm from './components/QueueForm'
 import Queue from './components/Queue'
-import { Github, Tv, QrCode, Mic } from 'lucide-react'
+import { Github, Tv, QrCode, Mic, Hourglass, UserX } from 'lucide-react'
 
 const isDemoMode = import.meta.env.VITE_DEMO_MODE === 'true'
 const displayHref = `${import.meta.env.BASE_URL}display`.replace(/\/+/g, '/').replace(':/', '://')
@@ -28,6 +28,7 @@ function App() {
   const [username, setUsername] = useState('')
   const [usernameError, setUsernameError] = useState('')
   const [roomError, setRoomError] = useState(null)
+  const [approvalStatus, setApprovalStatus] = useState(null)
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -56,6 +57,7 @@ function App() {
         setFingerprintId(d.fingerprint_id)
         setRoomError(null)
         setRequiresUsername(d.requires_username || false)
+        setApprovalStatus(d.approval_required ? (d.approval_status || 'pending') : null)
         setRequiresAuth(!!(d.requires_github_auth || d.requires_google_auth))
         setGithubConfigured(d.github_oauth_configured || false)
         setGoogleConfigured(d.google_oauth_configured || false)
@@ -87,6 +89,26 @@ function App() {
     return () => clearInterval(interval)
   }, [])
 
+  // While waiting for the host, re-ask periodically so the page flips by itself
+  // the moment they are admitted or turned away.
+  useEffect(() => {
+    if (approvalStatus !== 'pending') return undefined
+    const check = async () => {
+      try {
+        const { data } = await axios.post('/api/fingerprint/generate', {})
+        if (data.approval_required) {
+          setApprovalStatus(data.approval_status || 'pending')
+        } else {
+          setApprovalStatus(null)
+        }
+      } catch {
+        // keep waiting; a transient failure should not eject the guest
+      }
+    }
+    const timer = setInterval(check, 3000)
+    return () => clearInterval(timer)
+  }, [approvalStatus])
+
   const handleUsernameSubmit = async (e) => {
     e.preventDefault()
     setUsernameError('')
@@ -106,6 +128,7 @@ function App() {
       })
       setFingerprintId(response.data.fingerprint_id)
       setRequiresUsername(false)
+      setApprovalStatus(response.data.approval_required ? (response.data.approval_status || 'pending') : null)
     } catch (error) {
       setUsernameError(error.response?.data?.error || 'Failed to set username')
     }
@@ -115,6 +138,34 @@ function App() {
     return (
       <div className="min-h-screen min-h-[100dvh] flex items-center justify-center bg-background">
         <div className="text-muted-foreground animate-pulse">Loading...</div>
+      </div>
+    )
+  }
+
+  if (approvalStatus === 'pending' || approvalStatus === 'denied') {
+    const denied = approvalStatus === 'denied'
+    return (
+      <div className="min-h-screen min-h-[100dvh] flex items-center justify-center bg-background p-4 pt-[max(1rem,env(safe-area-inset-top))]">
+        <div className="w-full max-w-md rounded-xl border bg-card p-6 sm:p-8 shadow text-center">
+          {denied ? (
+            <>
+              <UserX className="h-12 w-12 mx-auto mb-4 text-destructive/70" />
+              <h1 className="text-xl sm:text-2xl font-bold mb-2">Not admitted</h1>
+              <p className="text-muted-foreground">
+                The host did not let you in. Have a word with them if you think that is a mistake.
+              </p>
+            </>
+          ) : (
+            <>
+              <Hourglass className="h-12 w-12 mx-auto mb-4 text-muted-foreground animate-pulse" />
+              <h1 className="text-xl sm:text-2xl font-bold mb-2">Waiting to be let in</h1>
+              <p className="text-muted-foreground">
+                {username ? <><span className="font-medium text-foreground">{username}</span>, the</> : 'The'} host
+                {' '}has to admit you before you can queue songs. Keep this page open.
+              </p>
+            </>
+          )}
+        </div>
       </div>
     )
   }

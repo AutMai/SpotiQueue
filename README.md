@@ -236,6 +236,27 @@ room on its next poll, so the projected QR updates on its own.
 Exactly one room is active at a time. To turn the whole mechanism off and go back
 to an open queue, uncheck **Configuration → Rooms → Require a room code**.
 
+### Approving each guest
+
+Scanning the QR is not always enough — at a public venue anyone walking past can
+scan what is on the wall. Enable **Configuration → Rooms → Approve each guest
+before they can queue** and joining becomes a two-step process:
+
+1. The guest gives a name and sees *"Waiting to be let in"*
+2. Their name appears under **Prequeue → Waiting to join**, where you approve or
+   decline. Their page updates by itself within a few seconds.
+
+Useful when you can ask out loud whether "Vicky" is actually standing there.
+Turning it on makes a username mandatory and does not affect guests already
+admitted, so it is safe to switch on mid-event. **Let all in** admits everyone
+waiting at once when a whole group arrives together.
+
+### Showing the QR big
+
+**QR Code → Show the big QR** fills the karaoke screen with a full-size code so a
+group can scan at once, with the link printed underneath for anyone who would
+rather type it. Lyrics return the moment you switch it off.
+
 ## Synced lyrics
 
 Tracks are checked for synced (LRC) lyrics, so a song that would leave the beamer
@@ -392,7 +413,7 @@ The admin panel has seven tabs:
 4. **Banned Tracks**: Manage list of banned tracks
 5. **Configuration**: Adjust settings:
    - Queue Management: Enable queueing, prequeue (approval required), max pending requests per guest
-   - Rooms: Require a room code (rotating QR)
+   - Rooms: Require a room code (rotating QR), approve each guest before they can queue
    - Rate Limiting: Cooldown duration, songs before cooldown
    - Song Voting: Enable/disable voting on queued tracks
    - Display Mode: Album aura, lyric sync offset

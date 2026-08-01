@@ -247,6 +247,14 @@ function Configuration() {
             saveVal={config.rooms_enabled !== 'false' ? 'true' : 'false'}
             help="Guests must arrive through the current room link (the QR code). Create a new room in the QR Code tab to invalidate the old link and lock out anyone abusing the queue. When disabled, anyone with the base URL can queue."
           />
+          <ConfigItem
+            config={config}
+            updateConfig={updateConfig}
+            label={<label className="flex items-center gap-2"><input type="checkbox" checked={config.require_join_approval === 'true'} onChange={(e) => handleChange('require_join_approval', e.target.checked ? 'true' : 'false')} /> Approve each guest before they can queue</label>}
+            saveKey="require_join_approval"
+            saveVal={config.require_join_approval || 'false'}
+            help="Guests give a name and then wait until you let them in, so scanning the QR is not enough on its own. Names appear under Prequeue, where you approve or decline each one. Turning this on also makes a username mandatory, and does not affect guests already admitted."
+          />
         </CardContent>
       </Card>
 

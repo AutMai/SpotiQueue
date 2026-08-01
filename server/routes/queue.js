@@ -6,7 +6,7 @@ const { searchTracks, getTrack, parseSpotifyUrl, addToQueue, getQueue } = requir
 const { getGuestAuthRequirements, sendAuthRequiredResponse } = require('../utils/guest-auth');
 const { getRemainingCooldown, hasExhaustedQuota, applyCooldownAfterSuccess, getCooldownSettings } = require('../utils/cooldown');
 const { checkAvailability, warmAvailability } = require('../utils/lyricsAvailability');
-const { requireRoom } = require('../middleware/room');
+const { requireRoom, requireApprovedGuest } = require('../middleware/room');
 const { getRequesterNames } = require('../utils/requesters');
 
 const router = express.Router();
@@ -232,7 +232,7 @@ router.get('/current', async (req, res) => {
   }
 });
 
-router.post('/search', requireRoom, async (req, res) => {
+router.post('/search', requireRoom, requireApprovedGuest, async (req, res) => {
   try {
     const queueingEnabled = getConfig('queueing_enabled');
     if (queueingEnabled === 'false') {
@@ -292,7 +292,7 @@ async function queueTrackImmediately(fingerprintId, fingerprint, trackId, trackI
   });
 }
 
-router.post('/add', requireRoom, async (req, res) => {
+router.post('/add', requireRoom, requireApprovedGuest, async (req, res) => {
   const queueingEnabled = getConfig('queueing_enabled');
   if (queueingEnabled === 'false') {
     return res.status(503).json({ error: 'Queueing is currently disabled.' });
@@ -565,7 +565,7 @@ router.post('/confirm/:pendingId', async (req, res) => {
   });
 });
 
-router.post('/vote', requireRoom, (req, res) => {
+router.post('/vote', requireRoom, requireApprovedGuest, (req, res) => {
   const votingEnabled = getConfig('voting_enabled') === 'true';
   if (!votingEnabled) {
     return res.status(503).json({ error: 'Voting is currently disabled.' });

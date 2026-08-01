@@ -5,13 +5,13 @@ const { getConfig } = require('../utils/config');
 const { getGuestAuthRequirements, sendAuthRequiredResponse } = require('../utils/guest-auth');
 const { getTrack, addToQueue, getQueue, parseSpotifyUrl } = require('../utils/spotify');
 const { requireAdminSession } = require('../middleware/adminSession');
-const { requireRoom } = require('../middleware/room');
+const { requireRoom, requireApprovedGuest } = require('../middleware/room');
 const { getRemainingCooldown, hasExhaustedQuota, getCooldownSettings } = require('../utils/cooldown');
 const { checkAvailability } = require('../utils/lyricsAvailability');
 
 const router = express.Router();
 
-router.post('/submit', requireRoom, async (req, res) => {
+router.post('/submit', requireRoom, requireApprovedGuest, async (req, res) => {
   const db = getDb();
   const prequeueEnabled = getConfig('prequeue_enabled') === 'true';
 

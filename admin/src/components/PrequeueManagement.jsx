@@ -91,6 +91,100 @@ function NowPlayingControl() {
   )
 }
 
+/**
+ * Guests waiting to be let in.
+ *
+ * Shows the name each person typed, so the host can call it out and check the
+ * right person is actually standing there before admitting them.
+ */
+function PendingJoins() {
+  const [state, setState] = useState({ enabled: false, pending: [] })
+  const [busy, setBusy] = useState(null)
+
+  const fetchJoins = async () => {
+    try {
+      const res = await axios.get('/api/admin/joins')
+      setState(res.data)
+    } catch {
+      // Auth or network error
+    }
+  }
+
+  useEffect(() => {
+    fetchJoins()
+    const interval = setInterval(fetchJoins, 3000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const decide = async (id, verdict) => {
+    setBusy(id)
+    try {
+      await axios.post(`/api/admin/joins/${id}/${verdict}`)
+      setState((s) => ({ ...s, pending: s.pending.filter((p) => p.id !== id) }))
+    } catch {
+      fetchJoins()
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const approveAll = async () => {
+    setBusy('all')
+    try {
+      await axios.post('/api/admin/joins/approve-all')
+      setState((s) => ({ ...s, pending: [] }))
+    } catch {
+      fetchJoins()
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  if (!state.enabled || state.pending.length === 0) return null
+
+  return (
+    <Card className="border-primary/40">
+      <CardContent className="p-4">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h3 className="font-semibold">
+            Waiting to join
+            <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-sm text-primary">
+              {state.pending.length}
+            </span>
+          </h3>
+          {state.pending.length > 1 && (
+            <Button size="sm" variant="outline" onClick={approveAll} disabled={busy === 'all'}>
+              Let all in
+            </Button>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          {state.pending.map((guest) => (
+            <div key={guest.id} className="flex items-center gap-3 rounded-lg border p-2.5">
+              <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-muted">
+                <User className="h-4 w-4 text-muted-foreground" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium">{guest.name || '(no name given)'}</p>
+                <p className="truncate font-mono text-xs text-muted-foreground">{guest.display_id}</p>
+              </div>
+              <div className="flex flex-shrink-0 gap-1.5">
+                <Button size="sm" onClick={() => decide(guest.id, 'approve')} disabled={busy === guest.id}>
+                  {busy === guest.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                </Button>
+                <Button size="sm" variant="destructive" onClick={() => decide(guest.id, 'deny')} disabled={busy === guest.id}>
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 function PrequeueManagement() {
   const [pending, setPending] = useState([])
   const [loading, setLoading] = useState(true)
@@ -150,6 +244,7 @@ function PrequeueManagement() {
   return (
     <div className="space-y-4">
       <NowPlayingControl />
+      <PendingJoins />
 
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Prequeue Requests</h2>

@@ -1,4 +1,6 @@
 const { roomsEnabled, getActiveRoom } = require('../utils/rooms');
+const { getConfig } = require('../utils/config');
+const { getDb } = require('../db');
 
 const ROOM_COOKIE = 'room_code';
 const ROOM_COOKIE_MAX_AGE = 24 * 60 * 60 * 1000; // A room rarely outlives one event
@@ -61,6 +63,33 @@ function requireRoom(req, res, next) {
   return next();
 }
 
+/**
+ * Block guests the host has not admitted yet.
+ *
+ * Runs after requireRoom: holding the room code gets you as far as the waiting
+ * screen, being approved is what lets you act.
+ */
+function requireApprovedGuest(req, res, next) {
+  if (getConfig('require_join_approval') !== 'true') return next();
+
+  const fingerprintId = req.body?.fingerprint_id || req.query?.fingerprint_id || req.cookies?.fingerprint_id;
+  if (!fingerprintId) {
+    return res.status(403).json({ error: 'Join the room first.', approval_status: 'pending' });
+  }
+
+  const row = getDb().prepare('SELECT approval_status FROM fingerprints WHERE id = ?').get(fingerprintId);
+  const status = row?.approval_status || 'pending';
+
+  if (status === 'approved') return next();
+
+  return res.status(403).json({
+    error: status === 'denied'
+      ? 'The host did not let you in.'
+      : 'Waiting for the host to let you in.',
+    approval_status: status
+  });
+}
+
 function setRoomCookie(res, code) {
   res.cookie(ROOM_COOKIE, code, {
     httpOnly: true,
@@ -75,5 +104,6 @@ module.exports = {
   resolveGuestRoom,
   roomErrorResponse,
   requireRoom,
+  requireApprovedGuest,
   setRoomCookie
 };

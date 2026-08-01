@@ -292,6 +292,54 @@ router.post('/playback/next', async (req, res) => {
   }
 });
 
+/**
+ * Guests waiting to be let in.
+ *
+ * Scoped to the active room, so rotating the room clears the list along with
+ * everything else.
+ */
+router.get('/joins', (req, res) => {
+  const room = getActiveRoom();
+  const pending = db.prepare(`
+    SELECT id,
+           COALESCE(username, github_username, google_username) AS name,
+           first_seen
+    FROM fingerprints
+    WHERE approval_status = 'pending'
+      AND status = 'active'
+      AND (? IS NULL OR room_id = ?)
+    ORDER BY first_seen ASC
+  `).all(room?.id ?? null, room?.id ?? null);
+
+  res.json({
+    enabled: getConfig('require_join_approval') === 'true',
+    pending: pending.map(p => ({ ...p, display_id: p.id.substring(0, 8) }))
+  });
+});
+
+function setApproval(req, res, verdict) {
+  const { id } = req.params;
+  const row = db.prepare('SELECT id FROM fingerprints WHERE id = ?').get(id);
+  if (!row) return res.status(404).json({ error: 'Guest not found' });
+
+  db.prepare('UPDATE fingerprints SET approval_status = ? WHERE id = ?').run(verdict, id);
+  res.json({ success: true, approval_status: verdict });
+}
+
+router.post('/joins/:id/approve', (req, res) => setApproval(req, res, 'approved'));
+router.post('/joins/:id/deny', (req, res) => setApproval(req, res, 'denied'));
+
+/** Let everyone currently waiting in, for when a whole group arrives at once. */
+router.post('/joins/approve-all', (req, res) => {
+  const room = getActiveRoom();
+  const result = db.prepare(`
+    UPDATE fingerprints SET approval_status = 'approved'
+    WHERE approval_status = 'pending' AND status = 'active'
+      AND (? IS NULL OR room_id = ?)
+  `).run(room?.id ?? null, room?.id ?? null);
+  res.json({ success: true, approved: result.changes });
+});
+
 function roomPayload(room, baseUrl) {
   const base = baseUrl || getBaseQueueUrl();
   return {

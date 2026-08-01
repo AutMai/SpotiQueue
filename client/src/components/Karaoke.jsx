@@ -52,6 +52,7 @@ export default function Karaoke() {
     auraEnabled,
     currentLyricIndex,
     rateLimited,
+    qrOverlay,
     appUrl,
     getPlaybackMs
   } = usePlayback()
@@ -103,6 +104,26 @@ export default function Karaoke() {
     ro.observe(stage)
     return () => ro.disconnect()
   }, [currentLyricIndex, hasLyrics])
+
+  // Toggled from the admin panel: covers the screen so a whole room can scan at
+  // once, rather than everyone crowding the side rail.
+  if (qrOverlay && appUrl) {
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-[3vh] bg-white text-gray-950 select-none">
+        <p className="text-[clamp(1.5rem,4vw,4rem)] font-bold tracking-tight">Scan to join</p>
+        <QRCodeSVG
+          value={appUrl}
+          size={2048}
+          level="M"
+          marginSize={2}
+          className="h-auto w-[min(62vh,62vw)]"
+        />
+        <p className="max-w-[90vw] break-all text-center font-mono text-[clamp(0.75rem,1.4vw,1.5rem)] text-gray-500">
+          {appUrl}
+        </p>
+      </div>
+    )
+  }
 
   return (
     <div className="fixed inset-0 bg-gray-950 text-white flex overflow-hidden select-none">
@@ -249,8 +270,16 @@ export default function Karaoke() {
 
         {appUrl && (
           <div className="shrink-0">
-            <div className="mx-auto w-fit rounded-lg bg-white p-[0.4vw]">
-              <QRCodeSVG value={appUrl} size={128} className="h-auto w-full max-w-[9vw] min-w-[4rem]" />
+            {/* Fills the rail rather than sitting in it: on a projector, physical
+                size is what decides whether a phone can read this at all. */}
+            <div className="mx-auto w-full rounded-lg bg-white p-[0.5vw]">
+              <QRCodeSVG
+                value={appUrl}
+                size={512}
+                level="M"
+                marginSize={2}
+                className="h-auto w-full"
+              />
             </div>
             <p className="mt-[0.6vh] text-center text-[clamp(0.5625rem,0.7vw,0.8125rem)] text-white/40">
               Scan to queue a song

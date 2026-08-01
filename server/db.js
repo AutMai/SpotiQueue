@@ -35,6 +35,9 @@ function initDatabase() {
   try { db.exec(`ALTER TABLE fingerprints ADD COLUMN google_avatar TEXT`); } catch (e) { if (!e.message.includes('duplicate')) console.warn(e.message); }
   // Which room admitted this guest. Guests bound to a closed room must rescan the new QR.
   try { db.exec(`ALTER TABLE fingerprints ADD COLUMN room_id INTEGER`); } catch (e) { if (!e.message.includes('duplicate')) console.warn(e.message); }
+  // 'approved' | 'pending' | 'denied'. Kept separate from `status` so the existing
+  // CHECK constraint on that column does not need rebuilding.
+  try { db.exec(`ALTER TABLE fingerprints ADD COLUMN approval_status TEXT`); } catch (e) { if (!e.message.includes('duplicate')) console.warn(e.message); }
 
   // Rooms - exactly one is active at a time. Rotating the room regenerates the
   // guest URL/QR so a troll's old link stops working.
@@ -187,6 +190,8 @@ function initDatabase() {
     { key: 'queue_grace_period_enabled', value: 'true' },
     { key: 'queue_grace_period_seconds', value: '5' },
     { key: 'rooms_enabled', value: 'true' },
+    { key: 'require_join_approval', value: 'false' },
+    { key: 'karaoke_qr_overlay', value: 'false' },
     { key: 'require_synced_lyrics', value: 'false' },
     { key: 'lyrics_providers', value: 'lrclib,netease' },
     // Negative = show lyrics earlier. Compensates for Spotify reporting lag plus

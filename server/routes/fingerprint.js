@@ -12,7 +12,9 @@ const db = getDb();
 router.post('/generate', (req, res) => {
   const fingerprintId = req.cookies.fingerprint_id || crypto.randomBytes(16).toString('hex');
   const username = req.body.username || null;
-  const requireUsername = getConfig('require_username') === 'true';
+  const requireApproval = getConfig('require_join_approval') === 'true';
+  // Approving a nameless guest is meaningless, so approval implies a username.
+  const requireUsername = getConfig('require_username') === 'true' || requireApproval;
 
   // Joining a room is the first gate: without a valid code there is nothing to
   // sign in to. A stale cookie is deliberately left in place - it is what lets
@@ -49,10 +51,16 @@ router.post('/generate', (req, res) => {
       });
     }
     
+    // Grandfather everyone in while approval is off, so switching it on later
+    // gates newcomers without ejecting people already queueing.
     db.prepare(`
-      INSERT INTO fingerprints (id, first_seen, last_queue_attempt, cooldown_expires, status, username, room_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(fingerprintId, now, null, null, 'active', username, roomResolution.room?.id || null);
+      INSERT INTO fingerprints (id, first_seen, last_queue_attempt, cooldown_expires, status, username, room_id, approval_status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      fingerprintId, now, null, null, 'active', username,
+      roomResolution.room?.id || null,
+      requireApproval ? 'pending' : 'approved'
+    );
   } else {
     // Update username if provided and not already set
     if (username && !existing.username) {
@@ -66,10 +74,17 @@ router.post('/generate', (req, res) => {
 
     // If username is required but not set, return error
     if (requireUsername && !existing.username && !username) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: 'Username is required',
-        requires_username: true 
+        requires_username: true
       });
+    }
+
+    // A device with no verdict yet needs one once approval is switched on
+    if (requireApproval && !existing.approval_status) {
+      db.prepare("UPDATE fingerprints SET approval_status = 'pending' WHERE id = ?").run(fingerprintId);
+    } else if (!requireApproval && !existing.approval_status) {
+      db.prepare("UPDATE fingerprints SET approval_status = 'approved' WHERE id = ?").run(fingerprintId);
     }
   }
   
@@ -86,6 +101,8 @@ router.post('/generate', (req, res) => {
     fingerprint_id: fingerprintId,
     username: fingerprint.username,
     room_code: roomResolution.code,
+    approval_required: requireApproval,
+    approval_status: requireApproval ? (fingerprint.approval_status || 'pending') : 'approved',
     requires_username: requireUsername && !fingerprint.username,
     requires_github_auth: authReq.needsGithubAuth,
     requires_google_auth: authReq.needsGoogleAuth,

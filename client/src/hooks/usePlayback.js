@@ -4,7 +4,9 @@ import axios from '@/lib/api'
 const POLL_NOW_PLAYING_MS = 3000
 const POLL_QUEUE_MS = 8000
 const POLL_VOTES_MS = 10000
-const POLL_CONFIG_MS = 10000
+// Faster than the guest page polls: this drives the on-demand QR overlay, and
+// waiting ten seconds while standing in front of the beamer is too long.
+const POLL_CONFIG_MS = 4000
 const DEFAULT_LYRIC_OFFSET_MS = -220
 
 /**
@@ -60,6 +62,7 @@ export function usePlayback() {
   const [cachedLyrics, setCachedLyrics] = useState(null)
   const [finishedTrackId, setFinishedTrackId] = useState(null)
   const [rateLimited, setRateLimited] = useState(false)
+  const [qrOverlay, setQrOverlay] = useState(false)
 
   const nowPlayingRef = useRef(null)
   const progressTimerRef = useRef(null)
@@ -220,6 +223,7 @@ export function usePlayback() {
         setAuraEnabled(res.data?.aura_enabled ?? false)
         setQueueUrl(res.data?.queue_url || '')
         setRoomCode(res.data?.room_code || null)
+        setQrOverlay(!!res.data?.karaoke_qr_overlay)
         if (Number.isFinite(res.data?.lyric_sync_offset_ms)) {
           setLyricOffsetMs(res.data.lyric_sync_offset_ms)
         }
@@ -286,6 +290,7 @@ export function usePlayback() {
     currentLyricIndex,
     lyricOffsetMs,
     rateLimited,
+    qrOverlay,
     appUrl,
     getPlaybackMs
   }
