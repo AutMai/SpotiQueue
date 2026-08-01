@@ -27,7 +27,7 @@ function SideAlbumArt({ src, alt }) {
   const [error, setError] = useState(false)
   if (!src || error) {
     return (
-      <div className="w-full aspect-square rounded-xl bg-white/10 flex items-center justify-center">
+      <div className="mx-auto aspect-square w-full max-w-[min(100%,20vh)] rounded-xl bg-white/10 flex items-center justify-center">
         <Music className="h-[8%] w-[8%] min-h-6 min-w-6 text-white/40" />
       </div>
     )
@@ -36,7 +36,7 @@ function SideAlbumArt({ src, alt }) {
     <img
       src={src}
       alt={alt || 'Album art'}
-      className="w-full aspect-square rounded-xl object-cover shadow-2xl"
+      className="mx-auto aspect-square w-full max-w-[min(100%,20vh)] rounded-xl object-cover shadow-2xl"
       onError={() => setError(true)}
     />
   )
@@ -203,19 +203,19 @@ export default function Karaoke() {
       </div>
 
       {/* Side rail */}
-      <aside className="flex w-[clamp(12rem,18vw,20rem)] shrink-0 flex-col gap-[2vh] border-l border-white/10 bg-black/40 p-[1.2vw]">
+      <aside className="flex w-[clamp(14rem,21vw,24rem)] shrink-0 flex-col gap-[2vh] border-l border-white/10 bg-black/40 p-[1.2vw]">
         {nowPlaying ? (
           <div className="shrink-0">
             <SideAlbumArt src={nowPlaying.album_art} alt={nowPlaying.album} />
-            <p className="mt-[1vh] truncate text-[clamp(0.8125rem,1vw,1.125rem)] font-semibold" title={nowPlaying.name}>
+            <p className="mt-[1vh] truncate text-[clamp(1.125rem,1.6vw,1.75rem)] font-semibold" title={nowPlaying.name}>
               {nowPlaying.name}
             </p>
-            <p className="truncate text-[clamp(0.6875rem,0.8vw,0.9375rem)] text-white/50" title={nowPlaying.artists}>
+            <p className="truncate text-[clamp(0.9375rem,1.15vw,1.375rem)] text-white/50" title={nowPlaying.artists}>
               {nowPlaying.artists}
             </p>
             {nowPlaying.requested_by && (
               <p
-                className="mt-[0.6vh] truncate rounded-md bg-white/10 px-2 py-[0.4vh] text-center text-[clamp(0.75rem,1.1vw,1.25rem)] font-semibold"
+                className="mt-[0.6vh] truncate rounded-md bg-white/10 px-2 py-[0.4vh] text-center text-[clamp(1rem,1.5vw,1.625rem)] font-semibold"
                 title={nowPlaying.requested_by}
               >
                 <Mic className="mr-1 inline h-[1em] w-[1em] align-[-0.1em]" />
@@ -232,7 +232,7 @@ export default function Karaoke() {
                 }}
               />
             </div>
-            <div className="mt-[0.4vh] flex justify-between font-mono text-[clamp(0.5625rem,0.6vw,0.75rem)] tabular-nums text-white/35">
+            <div className="mt-[0.4vh] flex justify-between font-mono text-[clamp(0.75rem,0.95vw,1.0625rem)] tabular-nums text-white/35">
               <span>{formatDuration(getPlaybackMs())}</span>
               <span>{formatDuration(nowPlaying.duration_ms)}</span>
             </div>
@@ -242,23 +242,23 @@ export default function Karaoke() {
         )}
 
         <div className="flex min-h-0 flex-1 flex-col">
-          <p className="mb-[0.8vh] shrink-0 text-[clamp(0.5625rem,0.65vw,0.75rem)] font-semibold uppercase tracking-widest text-white/35">
+          <p className="mb-[0.8vh] shrink-0 text-[clamp(0.75rem,0.95vw,1rem)] font-semibold uppercase tracking-widest text-white/35">
             Up next
           </p>
           <div className="no-scrollbar min-h-0 flex-1 space-y-[0.8vh] overflow-y-auto">
             {upNext.length === 0 ? (
-              <p className="text-[clamp(0.625rem,0.75vw,0.875rem)] text-white/25">Queue is empty</p>
+              <p className="text-[clamp(0.875rem,1.05vw,1.125rem)] text-white/25">Queue is empty</p>
             ) : (
-              upNext.slice(0, 8).map((track, i) => (
+              upNext.slice(0, 6).map((track, i) => (
                 <div key={`${track.id}-${i}`} className="flex items-center gap-[0.5vw]">
-                  <span className="w-[1.2em] shrink-0 text-right font-mono text-[clamp(0.5625rem,0.65vw,0.75rem)] tabular-nums text-white/25">
+                  <span className="w-[1.2em] shrink-0 text-right font-mono text-[clamp(0.75rem,0.95vw,1.0625rem)] tabular-nums text-white/25">
                     {i + 1}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-[clamp(0.625rem,0.8vw,0.9375rem)] font-medium" title={track.name}>
+                    <p className="truncate text-[clamp(0.875rem,1.25vw,1.375rem)] font-medium" title={track.name}>
                       {track.name}
                     </p>
-                    <p className="truncate text-[clamp(0.5625rem,0.65vw,0.8125rem)] text-white/40" title={track.artists}>
+                    <p className="truncate text-[clamp(0.8125rem,1.05vw,1.1875rem)] text-white/40" title={track.artists}>
                       {track.requested_by || track.artists}
                     </p>
                   </div>
@@ -272,7 +272,7 @@ export default function Karaoke() {
           <div className="shrink-0">
             {/* Fills the rail rather than sitting in it: on a projector, physical
                 size is what decides whether a phone can read this at all. */}
-            <div className="mx-auto w-full rounded-lg bg-white p-[0.5vw]">
+            <div className="mx-auto w-full max-w-[min(100%,24vh)] rounded-lg bg-white p-[0.5vw]">
               <QRCodeSVG
                 value={appUrl}
                 size={512}
@@ -281,7 +281,7 @@ export default function Karaoke() {
                 className="h-auto w-full"
               />
             </div>
-            <p className="mt-[0.6vh] text-center text-[clamp(0.5625rem,0.7vw,0.8125rem)] text-white/40">
+            <p className="mt-[0.6vh] text-center text-[clamp(0.8125rem,1.05vw,1.1875rem)] text-white/40">
               Scan to queue a song
             </p>
           </div>
